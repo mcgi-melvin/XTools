@@ -1,0 +1,94 @@
+/** overrides for the PW admin theme **/
+	/*.nonmodal #leftcoladmin {*/
+		/*width: 200px;*/
+		/*height: 100%;*/
+		/*position: fixed;*/
+		/*background: #1c2836;*/
+		/*color: #FFF;*/
+		/*top: 80px;*/
+	/*}*/
+	/*.nonmodal #pw-masthead {*/
+		/*position: fixed;*/
+		/*width: 100%;*/
+		/*top: 0;*/
+		/*z-index: 9999;*/
+	/*}*/
+	/*.nonmodal #main, .nonmodal #pw-footer {*/
+		/*width: calc(100% - 280px);*/
+		/*margin-left: 200px;*/
+		/*position: relative;*/
+	/*}*/
+	/*.nonmodal #notices {*/
+		/*width: calc(100% - 200px);*/
+		/*margin-left: 200px;*/
+	/*}*/
+	/*.nonmodal .pw-notices {*/
+		/*margin-bottom: 0;*/
+		/*margin-top: 0;*/
+	/*}*/
+	/*.nonmodal .pw-logo-link {*/
+		/*width: 170px;*/
+	/*}*/
+	/*.nonmodal #mastheadpad {*/
+		/*height: 80px;*/
+		/*width: 100px;*/
+		/*position: relative;*/
+	/*}*/
+	.aos_toggle {
+		margin-left: 20px;
+	}
+	#pw-footer .pw-container:nth-of-type(2) { /** hides the AOS footer item **/
+		display: none;
+	}
+	html.aos h1 {
+		max-width: calc(100% - 400px);
+	}
+	/*#leftcoladmin .lhitem {*/
+		/*display: block;*/
+		/*color: #FFF;*/
+		/*padding: 10px 20px;*/
+		/*text-decoration: none;*/
+	/*}*/
+	/*#leftcoladmin .lhitem:hover, #leftcoladmin .activelhmenulink {*/
+		/*background: #4c4856;*/
+		/*text-decoration: none;*/
+	/*}*/
+	.PageList .PageListItemOpen.PageListItemHover>a.PageListPage, .PageList .PageListItemOpen.PageListItemHover>a.PageListPage:hover, .PageList .PageListItemOpen>a.PageListPage,
+	.PageList .PageListItemOpen>a.PageListPage:hover, .PageList .PageListItem.PageListItemHover>a.PageListPage, .PageList .PageListItem>a.PageListPage:hover,
+	.PageList .PageListItem>a.PageListPage, .uk-tab>*>a, .uk-link, a, a:hover, .PageList .PageListItem>a.PageListPage i {
+		color: #3C95CD;
+	}
+	.PageList .PageListActions a, .PageList .PageListMoveNote a, .PageList .PageListerActions a {
+		background-color: transparent;
+		color: #8d939e;
+		font-weight: normal;
+	}
+	.PageList .PageListActions a:hover, .PageList .PageListMoveNote a:hover, .PageList .PageListerActions a:hover {
+		color: #FFF;
+		background-color: #51739d;
+	}
+	#pw-content-head-buttons .ui-button, .ui-button, .ui-button.ui-state-default {
+		background-color: #3C95CD;
+	}
+	#pw-content-head-buttons .ui-button:hover, .ui-button:hover, .ui-button.ui-state-default:hover {
+		background-color: #51739d;
+	}
+	.PageList .PageListItem:not(.PageListPlaceholderItem) {
+		padding-top: 0.4em;
+		padding-bottom: 0.4em;
+	}
+	.pw-content .PageList .PageListItem {
+		border-bottom: 1px solid #e6ebf1;
+		line-height: 1.3em;
+	}
+	.PageList .PageListItem:hover .PageListActions, .PageList .PageListItemOpen:hover .PageListActions,
+	.PageList .PageListItemOpen:hover > ul.PageListActions {
+		opacity: 1;
+		display: inline;
+	}
+	.uk-tab>*>a:focus, .uk-tab>*>a:hover {
+		color: #51739d;
+	}
+	.InputfieldFileUpload .InputMask.ui-button:hover, .InputfieldImageUpload .InputMask.ui-button:hover {
+		background-color: #3C95CD;
+	}

@@ -1,0 +1,87 @@
+#ProcessProfilerPro {
+	display: none;
+	
+	button.submit_start,
+	button.submit_stop,
+	button.submit_refresh {
+		// we only show these buttons in the header
+		display: none;
+	}
+
+	button.submit_exportCSV,
+	button.submit_clear {
+		float: right;
+		margin-left: 0.75em;
+	}
+
+	
+	// events list table
+	.ProfilerEventsTable {
+		.AdminDataTable {
+			tr {
+				th {
+					white-space: nowrap;
+				}
+				td {
+					white-space: nowrap;
+					.table-sort-value,
+					.pwpp-event-id {
+						display: none;
+					}
+					.pwpp-units {
+						font-weight: normal;
+						padding-left: 1px;
+					}
+				}
+				td:first-child {
+					white-space: normal;
+					overflow: hidden;
+				}
+			}
+			tfoot td {
+				border-bottom: none;
+			}
+		}
+		.pwpp-filter-toggle {
+			float: right;
+			margin-right: 0.5em;
+		}
+		.toggle-icon {
+			display: none;
+		}
+	}
+	#wrap_pwpp-filter {
+		display: none;
+	}
+}
+
+.pwpp-zero {
+	// applied to 0.0 totals to de-emphasize them
+	color: #ccc;
+}
+
+.pwpp-graph-donut,
+.pwpp-graph-pie {
+	display: none;
+}
+
+body.pwpp-tab-ProfilerConfig {
+	.pwpp-hidden-for-config {
+		display: none;
+	}
+}
+body:not(.pwpp-tab-ProfilerConfig) {
+	.pwpp-hidden-not-config {
+		display: none;
+	}
+}
+
+svg.peity {
+	position: relative;
+	top: 3px;
+}
+
+button.submit_refresh {
+	outline: none;
+}
+

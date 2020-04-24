@@ -1,0 +1,101 @@
+<?php
+namespace ProcessWire;
+
+class ProcessWalkMedia extends Process {
+
+	public static function getModuleinfo() {
+		return [
+			'title' => 'Walk Creative Media Manager',
+			'summary' => 'Basic Image Manager',
+			'author' => 'Alan Logan, Walk Creative Pty Ltd',
+			'version' => 1,
+
+			// page that you want created to execute this module
+			'page' => [
+				// your page will be online at /processwire/yourname/
+				'name' => 'image-manager',
+				// page title for this admin-page
+				'title' => 'Image Manager',
+			],
+			'permission' => 'view-img-mgr',
+			'permissions' => array('view-img-mgr' => 'Walk Image Manager'),
+			'autoload' => true
+		];
+	}
+
+	public function init() {
+		parent::init();
+		$this->config->scripts->add($this->config->urls->root . "wire/modules/Jquery/JqueryMagnific/JqueryMagnific.min.js");
+		$this->config->styles->add($this->config->urls->root . "wire/modules/Jquery/JqueryMagnific/JqueryMagnific.css");
+//		$this->pages->addHookAfter('save', $this, 'afterPageSave');
+	}
+
+	public function afterPageSave($event) {
+		$mypage = $event->arguments[0];
+		$isModal = intval($this->input->get->modal);
+		//now handle what to do if this is a modal popup
+//		$modalCloses = ['candidate','hirer','job','joblink','candlink'];
+//		if(in_array($mypage->template, $modalCloses) and $isModal === 1) {
+//			wire("session")->redirect($this->wire->config->urls->root."post/admin/close-modal.php");
+//		}
+	}
+
+	public function ___execute() {
+		$searchterms = $this->input->get['t'];
+		$searchtype = $this->input->get['st'];
+		$opts = ["any" => "Match Any", "all" => "Match Exact"];
+
+		$out = "";
+		$out .= "<div class='sqpg-search-div'>";
+		$out .= "<p>Enter image information to search for. Limit of 250 records shown.</p>";
+		$out .= "<p class='wcm-single-row-holder'><select id='sqpg-search-type' class='uk-select' style='float:left; display: inline-block; width: 14%;'>";
+		foreach($opts as $optkey => $optval) {
+			$selected = "";
+			if($optkey === $searchtype) {
+				$selected = "selected";
+			}
+			$out .= "<option value='$optkey' $selected>$optval</option>";
+		}
+		$out .= "</select>";
+		$out .= "<input type='text' id='sqpg-search-terms' class='uk-input input-value-text' value='$searchterms' style='float:left; margin-left: 1%; margin-right: 1%; display: inline-block; width: 35%;' />";
+		$out .= "<button class='ui-button' onclick='doWCimgFilter(&apos;cand&apos;);' type='button'>Search</button></p>";
+
+		$filt = "";
+		if($searchterms !== "") {
+			if ($searchtype === "all") {
+				$filt = "body_content|title|hero_image.description|extra_images.description*=$searchterms,";
+			}
+			else if ($searchtype === "any") {
+				$filt = "body_content|title|hero_image.description|extra_images.description~=$searchterms),";
+			}
+		}
+		$out .= "</div>";
+		$out .= "<div style='overflow:hidden'>";
+		$selector = "parent=/articles/|/galleries/, template=article|gallery, $filt sort=title, limit=250";
+		$pgs = $this->pages->find($selector);
+		foreach($pgs as $pg) {
+			foreach($pg->hero_image as $hi) {
+				$out .= $this->createImageTile($hi, $pg);
+			}
+		}
+		$out .= "</div>";
+		return $out;
+	}
+
+	protected function createImageTile($imgItem, $onpage) {
+		$out = "";
+		if($imgItem) {
+			$out = "<div class='wcad-imgtile' style='display: inline-block; float: left; width: 200px; height: 300px; overflow: hidden; margin: 10px;'>";
+			$myimg = $imgItem->size(180, 180);
+			$out .= "<div class='wcad-imghold'><a href='$imgItem->url' class='wcmagnific'><img style='cursor:zoom-in;' class='InputfieldImageEdit__image' src='$myimg->url' /></a></div>";
+			$out .= "<div class='wcad-imginf' style='font-size:12px;'>";
+			$out .= "<a href='$imgItem->url' target='_blank' class='aos_downloadAsset' download title='Download'><i class='fa fa-download'></i></a>";
+			$out .= "<a href='".$this->config->urls->admin."page/edit/?id=".$onpage->id."' target='_blank' title='Edit Containing Page'><i class='fa fa-edit'></i></a>";
+			$out .= "</div>";
+			$out .= "<div class='wcad-imginf' style='font-size:12px;'>$imgItem->description</div>";
+			$out .= "</div>";
+		}
+		return $out;
+	}
+
+}

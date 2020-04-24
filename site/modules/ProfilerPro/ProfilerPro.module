@@ -1,0 +1,1135 @@
+<?php namespace ProcessWire;
+
+require(__DIR__ . '/ProfilerProEvent.php');
+require(__DIR__ . '/ProfilerProArray.php');
+
+/**
+ * ProfilerPro
+ * 
+ * DO NOT DISTRIBUTE
+ * This is a commercial module from the ProDevTools package.
+ * These files may not be placed in any public repository.
+ *
+ * Copyright (C) 2016 by Ryan Cramer
+ * https://processwire.com
+ * 
+ * #pw-summary ProfilerPro is a commercial module that helps you profile and optimize your website.
+ * #pw-var $profiler
+ * #pw-body =
+ * ~~~~~
+ * // start profiling
+ * $event = $profiler->start('my-event');
+ * 
+ * // execute some other code, then stop
+ * $profiler->stop($event);
+ * ~~~~~
+ * #pw-body
+ * 
+ * 
+ * @property int $active Whether or not profiling is active (0=no, 1=yes, 2=superuser) #pw-internal
+ * @property string|float $minTime Minimum required execution time for an event to be recorded. #pw-internal
+ * @property int $precision Precision to use in time output. #pw-internal
+ * @property array $columns Columns of information to show in admin tool. #pw-internal
+ * @property int $refreshSecs How often to refresh results in admin tool. #pw-internal
+ * @property array $recordTypes Event types to record #pw-internal
+ * @property array $skipTemplates IDs of templates to skip #pw-internal
+ * @property array $onlyTemplates IDs of templates that should not be skipped (non selected = none skipped) #pw-internal
+ * @property int $paginationLimit Number of items to display per pagination in admin tool #pw-internal
+ * @property int $minQty Minimum quantity of events of the same name required before it starts appearing in admin tool. #pw-internal
+ * @property int $userLimit Limit relative to user type (0=all, 2=superuser only)
+ * 
+ */
+class ProfilerPro extends WireData implements Module, WireProfilerInterface, ConfigurableModule {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Profiler Pro (Main)',
+			'version' => 1,
+			'summary' => 'ProfilerPro helps you profile and optimize your site.',
+			'author' => 'Ryan Cramer Design, LLC',
+			'singular' => true,
+			'autoload' => true,
+			'icon' => 'tachometer', 
+			'installs' => 'ProcessProfilerPro',
+			'requires' => 'ProcessWire>=3.0.41',
+		);
+	}
+
+	/**
+	 * Table used to store events
+	 * 
+	 */
+	const eventsTable = 'profilerpro_events';
+
+	/**
+	 * timeFormat constant to indicate "seconds"
+	 * 
+	 */
+	const timeFormatS = 0;
+
+	/**
+	 * timeFormat constant to indicate "milliseconds"
+	 * 
+	 */
+	const timeFormatMS = 1;
+
+	/**
+	 * Events queued to be saved
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $events = array();
+
+	/**
+	 * Stack of event IDs
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $eventStack = array();
+
+	/**
+	 * Is profiling active?
+	 * 
+	 * 0=no, 1=yes, 2=superuser
+	 * 
+	 * @var int
+	 * 
+	 */
+	protected $isActive = 0;
+	
+	/**
+	 * Is this a JS event?
+	 *
+	 * @var int Uses same values as $isActive
+	 *
+	 */
+	protected $isActiveAjax = 0;
+
+	/**
+	 * Becomes true after ProcessWire::ready
+	 * 
+	 */
+	protected $isReady = false;
+	
+	/**
+	 * Minimum time threshold required to record an event
+	 *
+	 * @var float
+	 *
+	 */
+	protected $minTime = 0.0001;
+
+	/**
+	 * When true, maintenance will run even if $this->isActive is false
+	 * 
+	 * @var bool
+	 * 
+	 */
+	protected $forceRunMaintenance = false;
+
+
+	/**
+	 * Request methods 
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $requestMethods = array(
+		'UNKNOWN' => 0,
+		'GET' => 1,
+		'POST' => 2, 
+		'HEAD' => 3,
+		'PUT' => 4,
+		'DELETE' => 5,
+		'OPTIONS' => 6,
+	);
+	
+	/**
+	 * Types of events that we monitor (class => eventType)
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $eventTypes = array(
+		'PageRender' => 3,
+		'TemplateFile' => 1,
+		'Pages' => 5,
+		'WireHooks' => 4, 
+		'js' => 6,
+		'myPHP' => 0,
+		'myJS' => 7,
+		'Modules' => 2,
+	);
+	
+	/**
+	 * Valid sorts
+	 *
+	 * @var array of abbr => sort
+	 *
+	 */
+	protected $sorts = array(
+		'name' => 'name',
+		'avg' => 'average_time',
+		'total' => 'total_time',
+		'qty' => 'qty',
+		'last' => 'last_time',
+		'fast' => 'fastest_time',
+		'slow' => 'slowest_time',
+		'created' => 'created',
+		'modified' => 'modified',
+	);
+
+	/**
+	 * Names of hooks that we don't track
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $skipHooks = array(
+		'PageRender::renderPage()', // redundant to pageview
+		'ProCache::hookPageRender()', // redundant to pageview
+		'ProfilerPro::hookAfterPageRender()',
+	);
+
+	/**
+	 * Template IDs that are skipped for tracking events
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $skipTemplates = array(2);
+
+	/**
+	 * When populated only these template IDs are tracked for events
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $onlyTemplates = array();
+
+	/**
+	 * Time that this module was constructed
+	 * 
+	 * @var float
+	 * 
+	 */
+	protected $startTime = 0.0;
+
+	/**
+	 * Construct
+	 * 
+	 */
+	public function __construct() {
+		
+		$this->startTime = microtime(true);
+		$this->wire('profiler', $this, true);
+		$this->set('precision', 3); 
+		$this->set('timeFormat', self::timeFormatS);
+		$this->set('refreshSecs', 3); 
+		$this->set('recordTypes', array(3,1,5,4)); 
+		$this->set('paginationLimit', 100);
+		$this->set('minQty', 1);
+		$this->set('userLimit', 0);
+		$this->set('columns', array(
+			'-avg',
+			'-avg2', // with pie graph
+			'avg3', // with donut graph
+			'-total',
+			'total2', // with pie graph
+			'-total3', // with donut graph
+			'qty',
+			'-last',
+			'-fast',
+			'-slow',
+			'created',	
+			'modified',
+		));
+		if(isset($_SERVER['HTTP_X_PWPP'])) {
+			$this->addHookAfter('ProcessWire::ready', $this, 'processJSEvent');
+		}
+	}
+
+	/**
+	 * Module init() event
+	 * 
+	 * #pw-internal
+	 * 
+	 */
+	public function init() {
+		if(isset($_SERVER['HTTP_X_PWPP']) && $this->isActive) {
+			// ajax save event(s) request
+			// temporarily disable isActive for this request only, delegating to isActiveAjax
+			$this->isActiveAjax = $this->isActive;
+			$this->isActive = 0;
+		}
+	}
+
+	/**
+	 * Module API ready() event
+	 * 
+	 * #pw-internal
+	 * 
+	 */
+	public function ready() {
+
+		// setlocale(LC_ALL, 'pl_PL'); // for testing localization that uses commas instead of periods in floats
+		if(!$this->isActive) return;
+
+		if($this->userLimit === 2) {
+			// record only for logged in Superusers
+			$user = $this->wire('user');
+			if(!$user || !$user->isSuperuser()) {
+				$this->isActive = 0;	
+				return;
+			}
+		}
+
+		$page = $this->wire('page');
+		$recordTypes = $this->get('recordTypes');
+		$skipTemplates = $this->get('skipTemplates');
+		$onlyTemplates = $this->get('onlyTemplates');
+		
+		if(!count($recordTypes)) {
+			$this->isActive = 0;
+			return;
+		}
+
+		if($page && $page->id) {
+			// $page API variable is present
+			if(in_array($page->template->id, $skipTemplates)) {
+				// page template that should be skipped
+				$this->isActive = 0;
+			} else if(count($onlyTemplates)) {
+				// only certain page templates are allowed
+				if(!in_array($page->template->id, $onlyTemplates)) $this->isActive = 0;
+			}
+		} else {
+			// no $page API variable present
+			if(count($onlyTemplates)) {
+				// only certain templates are allowed and there's no $page to check
+				$this->isActive = 0;
+			}
+		}
+		
+		if(!$this->isActive) return;
+		
+		if(in_array(6, $recordTypes) || in_array(7, $recordTypes)) {
+			// add hook which adds script to the output for JS or MyJS events
+			$this->addHookAfter('Page::render', $this, 'hookAfterPageRender');
+		}
+	
+		// indicates that all conditions check out for recording events
+		$this->isReady = true;
+	}
+
+	/**
+	 * Hook called after page render
+	 * 
+	 * We use this to insert our javascript link for front-end profiling functionality
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param HookEvent $e
+	 * 
+	 */
+	public function hookAfterPageRender(HookEvent $e) {
+		$out = $e->return;
+		if(stripos($out, '<html') === false) return;
+		$parts = preg_split('/(<(?:head|script|link)(?:\s+[^>]+)?>)/i', $out, 2, PREG_SPLIT_DELIM_CAPTURE); 
+		if(!count($parts)) return;
+		if(stripos($parts[1], 'head')) {
+			$e->return = $parts[0] . $parts[1] . $this->js() . $parts[2];
+		} else {
+			$e->return = $parts[0] . $this->js() . $parts[1] . $parts[2];
+		}
+	}
+
+	/**
+	 * Process a submitted front-end AJAX event from javascript
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param HookEvent $e
+	 * 
+	 */
+	public function processJSEvent(HookEvent $e) {
+		if($e) {}
+
+		$input = $this->input;
+		$sanitizer = $this->sanitizer;
+		$types = $this->recordTypes;
+	
+		$this->isReady = true;
+		if(!$this->isActiveAjax) return;
+		
+		if($this->userLimit === 2) {
+			$user = $this->wire('user');
+			if($user && !$user->isSuperuser()) return;
+		}
+		
+		if(!in_array(6, $types) && !in_array(7, $types)) return;
+		if(!isset($_SERVER['HTTP_X_PWPP']) || $_SERVER['HTTP_X_PWPP'] !== 'save_events') return;
+
+		$page = $this->wire('page');
+		if($page->id == $this->config->http404PageID) return;
+		if(!empty($this->onlyTemplates) && !in_array($page->template->id, $this->onlyTemplates)) return;
+		if(in_array($page->template->id, $this->skipTemplates)) return;
+
+		// $browser = $sanitizer->name($input->post('browser'));
+		$requestMethod = $input->post('method') === 'POST' ? 'POST' : 'GET';
+		$urlSegmentStr = $input->post('segment');
+		$urlSegmentStr = strlen($urlSegmentStr) ? $sanitizer->pagePathName($urlSegmentStr) : '';
+		$url = $page->path();
+		if(strlen($urlSegmentStr)) $url = rtrim($url, '/') . "/$urlSegmentStr";
+		$events = array();
+
+		foreach($input->get as $key => $value) {
+			if(!strpos($key, '_')) continue;
+			$key = $sanitizer->name($key);
+			list($name, $property) = explode('_', $key, 2);
+			$_name = strtoupper($name);
+			if($_name == 'LOAD' || $_name == 'READY') {
+				$eventType = 6; // JS
+				if(!in_array($eventType, $types)) continue;
+				$name = "$_name\t$url";
+				$eventID = md5("$eventType:$name:$requestMethod:$page->id:$urlSegmentStr");
+			} else {
+				$eventType = 7; // MyJS
+				if(!in_array($eventType, $types)) continue;
+				$_name = $sanitizer->text($input->get($name . '_name'));
+				if(strlen($_name)) $name = $_name;
+				$eventID = md5("$eventType:$name:$requestMethod");
+			}
+			if(!isset($events[$eventID])) {
+				$events[$eventID] = array(
+					'id' => $eventID,
+					'name' => $name,
+					'qty' => 1,
+					'event_type' => $eventType, 
+					'request_method' => $this->requestMethods[$requestMethod],
+					'pages_id' => $page->id
+				);
+			}		
+			if($property == 'time') {
+				// i.e. ready_time
+				$events[$eventID]['total_time'] = (float) $value;
+				$events[$eventID]['average_time'] = (float) $value;
+				$events[$eventID]['elapsed_times'] = array((float) $value);
+			} else {
+				// some other property
+			}
+		}
+
+		foreach($events as $eventID => $event) {
+			$this->events[$eventID] = $event;
+		}
+		
+		$this->isActive = $this->isActiveAjax;
+		$this->forceRunMaintenance = true;
+		$this->maintenance();
+		
+		echo 'PWPP:' . count($events);
+		exit;
+	}
+
+	/**
+	 * Returns the markup for the ProfilerPro JS and API front-end API variable
+	 * 
+	 * #pw-internal
+	 * 
+	 * @return string
+	 * 
+	 */
+	public function js() {
+		$url = $this->config->urls('ProfilerPro') . 'profiler.min.js?NoMinify=1';
+		$input = $this->input;
+		$requestMethod = $input->requestMethod();
+		$urlSegmentStr = $input->urlSegmentStr();
+		$elapsedTime = round((microtime(true) - $this->startTime) * 1000);
+		$out = 
+			"<script src='$url'></script>" . 
+			"<script>" . 
+			"ProfilerPro.init($elapsedTime, '$requestMethod','$urlSegmentStr');" . 
+			"var profiler = ProfilerPro;" . 
+			"</script>";
+		return $out;
+	}
+
+	/**
+	 * Set property
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param string $key
+	 * @param mixed $value
+	 * @return WireData|ProfilerPro
+	 * 
+	 */
+	public function set($key, $value) {
+		if($key === 'active' || $key === 'isActive') {
+			if($value == 2) parent::set('userLimit', 2); // backwards compatibility from when isActive managed this setting
+			$this->isActive = $value > 0 ? 1 : 0;
+		} else if($key === 'userLimit') {
+			$this->userLimit = (int) $value;
+		} else if($key == 'minTime') {
+			if((strpos($value, ',') === false && strpos($value, '.') === false) && $value > 0) {
+				$this->minTime = $value / 1000;
+			} else {
+				$this->minTime = (float) $value;
+			}
+		} else if($key == 'skipTemplates') {
+			if(is_array($value)) $this->skipTemplates = $value;
+		} else if($key == 'onlyTemplates') {
+			if(is_array($value)) $this->onlyTemplates = $value;
+		} else {
+			return parent::set($key, $value);
+		}
+		return $this;
+	}
+
+	/**
+	 * Get property
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param object|string $key
+	 * @return bool|mixed|null
+	 * 
+	 */
+	public function get($key) {
+		if($key === 'active' || $key === 'isActive') return $this->isActive;
+		if($key === 'minTime') return $this->minTime;
+		if($key === 'skipTemplates') return $this->skipTemplates;
+		if($key === 'onlyTemplates') return $this->onlyTemplates;
+		return parent::get($key);
+	}
+
+	/**
+	 * Enable or disable ProfilerPro
+	 * 
+	 * Note that this setting is saved in the module configuration, making it apply
+	 * not just to the current request but any requests that occur after this. 
+	 * 
+	 * @param int $active Active state (0=no, 1=yes, 2=superuser)
+	 * 
+	 */
+	public function saveActive($active) {
+		$active = (int) $active;
+		/** @var Modules $modules */
+		$modules = $this->wire('modules');
+		$modules->saveConfig($this, 'active', (int) $active);
+	}
+
+	/**
+	 * Is profiler active? (0=no, 1=yes, 2=superuser)
+	 * 
+	 * @return int 
+	 * 
+	 */
+	public function isActive() {
+		return $this->isActive;
+	}
+
+	/**
+	 * Get information about an event type, property, or all event types
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param int $eventType Event type number or omit for all event types
+	 * @param string $property Optionally specify property to retrieve (label, description or icon)
+	 * @return array|mixed|string
+	 * 
+	 */
+	public function getEventTypeInfo($eventType = -1, $property = '') {
+		static $info = array();
+		if(empty($info)) $info = array(
+			3 => array(
+				'label' => $this->_('Pageviews'),
+				'description' => $this->_('Times to render pages'),
+				'icon' => 'clock-o'
+			),
+			1 => array(
+				'label' => $this->_('Files'), 
+				'description' => $this->_('Times to render/execute PHP files'),
+				'icon' => 'bell-o',
+			), 
+			4 => array(
+				'label' => $this->_('Hooks'), 
+				'description' => $this->_('Times to execute hooks'),
+				'icon' => 'plug', 
+			), 
+			5 => array(
+				'label' => $this->_('$pages'), 
+				'description' => $this->_('Common $pages API call timers'),
+				'icon' => 'calculator',
+			),
+			6 => array(
+				'label' => $this->_('JS'), 
+				'description' => $this->_('Javascript ready and load event timers'),
+				'icon' => 'tasks',
+			),
+			0 => array(
+				'label' => $this->_('MyPHP'), 
+				'description' => $this->_('Times for your own custom PHP events'),
+				'icon' => 'pie-chart',
+			),
+			7 => array(
+				'label' => $this->_('MyJS'), 
+				'description' => $this->_('Times for your own custom Javascript events'),
+				'icon' => 'bar-chart',
+			),
+		);
+		
+		if($eventType > -1 && isset($info[$eventType])) {
+			$i = $info[$eventType];
+			if($property) return isset($i[$property]) ? $i[$property] : '';
+			return $i;
+		}
+		
+		return $info;
+	}
+	
+	/**
+	 * Start tracking an event
+	 *
+	 * Returns the event array to be used for stop tracking.
+	 * 
+	 * ~~~~~
+	 * $event = $profiler->start('my-event'); 
+	 * // execute some other code
+	 * $profiler->stop($event);
+	 * ~~~~~
+	 * 
+	 * @param string $name Name of your event
+	 * @param Wire|object|string|null $source Optional source of event (omit for MyPHP)
+	 * @param array $data Additional data, currently not used
+	 * @return array|null Event to be used for stop call
+	 * @see ProfilerPro::stop()
+	 *
+	 */
+	public function start($name, $source = null, $data = array()) {
+		
+		if(!$this->isActive || !$this->isReady) return null;
+	
+		if($source) {
+			if(is_object($source)) {
+				$source = $source instanceof Wire ? $source->className() : wireClassName($source);
+			} else {
+				$source = (string) $source;
+			}
+			if(!isset($this->eventTypes[$source])) return null;
+			$eventType = $this->eventTypes[$source]; // convert to int
+		} else {
+			// no dot separator means custom user event
+			$eventType = $this->eventTypes['myPHP'];
+		}
+	
+		// don't record hooks or $pages events if $page is not yet known
+		$page = $this->wire('page');
+		if((!$page || !$page->id) && ($eventType == 4 || $eventType == 5)) return null;
+		
+		if($source === 'WireHooks' && isset($data['event']) && isset($data['hook'])) {
+			$name = $this->hookEventName($data['event'], $data['hook']);
+			if(empty($name)) return null;
+			
+		} else if($source === 'Pages') {
+			if(strpos($name, 'pages.count') !== false) {
+				$name = str_replace(array(', limit=1', 'limit=1,', 'limit=1'), '', $name);
+			} else {
+				$name = str_replace(array(', sort=sort', 'sort=sort,', 'sort=sort', ', status<9999999', 'status<9999999'), '', $name);
+			}
+			while(strpos($name, '  ') !== false) $name = str_replace('  ', ' ', $name);
+			
+		} else if($source == 'PageRender') {
+			$urlSegmentStr = $this->wire('input')->urlSegmentStr(); 
+			if(strlen($urlSegmentStr)) $name = rtrim($name, '/') . "/$urlSegmentStr";
+		}
+
+		$m = $this->wire('input')->requestMethod();
+		if(empty($m)) $m = 'UNKNOWN';
+		$requestMethod = isset($this->requestMethods[$m]) ? $this->requestMethods[$m] : 0;
+	
+		if(isset($data['page'])) {
+			$pageID = $data['page'] instanceof Page ? $data['page']->id : (int) $data['page'];
+		} else {
+			$pageID = 0;
+		}
+	
+		$eventID = md5("$eventType:$name:$requestMethod:$pageID");
+		
+		$event = array(
+			'id' => $eventID,
+			'name' => $name, 
+			'event_type' => $eventType, 
+			'request_method' => $requestMethod,
+			'start_time' => microtime(true),
+			'total_time' => 0,
+			'pages_id' => $pageID,
+			'qty' => 1,
+		);
+		
+		$this->eventStack[$eventID] = $eventID;
+		
+		return $event;
+	}
+
+	/**
+	 * Stop tracking an event
+	 *
+	 * @param array|object|string|null $event The event returned from the $profiler->start() method
+	 * @return float Returns elapsed time since the start() call
+	 *
+	 */
+	public function stop($event) {
+		if(empty($event) || !$this->isActive || !$this->isReady) return 0.0;
+		$eventID = $event['id'];
+		$elapsedTime = (microtime(true) - $event['start_time']);
+		if($elapsedTime >= $this->minTime) { //|| isset($this->events[$eventID])) {
+			$event['total_time'] += $elapsedTime;
+			$event['elapsed_times'][] = $elapsedTime;
+			if(isset($this->events[$eventID])) {
+				$event['total_time'] += $this->events[$eventID]['total_time'];
+				$event['qty'] += $this->events[$eventID]['qty'];
+			}
+			$this->events[$eventID] = $event;
+		}
+		unset($this->eventStack[$eventID]);
+		return $elapsedTime;
+	}
+
+	/**
+	 * Find profiler events
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param array $options
+	 * @return ProfilerProArray|int Returns int with qty of rows only if 'csvfp' option is used
+	 * 
+	 */
+	public function find($options = array()) {
+		$defaults = array(
+			'event_type' => -1, 
+			'name' => '', 
+			'qty' => $this->get('minQty'), // min quantity threshold
+			'sort' => '-average_time', 
+			'limit' => $this->get('paginationLimit'), 	
+			'start' => null,
+			'csvfp' => null, // CSV file pointer
+		);
+		$database = $this->wire('database');
+		$options = array_merge($defaults, $options);
+		$desc = strpos($options['sort'], '-') === 0 ? 'DESC' : '';
+		$sort = ltrim($options['sort'], '-');
+		if(empty($sort) || !in_array($sort, $this->sorts)) {
+			if(isset($this->sorts[$sort])) {
+				// shorter $sorts array key provided rather than value 
+				$sort = $this->sorts[$sort];
+				$options['sort'] = ($desc ? '-' : '') . $sort;
+			} else {
+				$options['sort'] = $defaults['sort'];
+				$sort = trim($defaults['sort'], '-');
+				$desc = 'DESC';
+			}
+		}
+		if(is_null($options['start'])) $options['start'] = ($this->wire('input')->pageNum-1) * $options['limit'];
+		$table = self::eventsTable;
+		$sql = "FROM $table ";
+		$wheres = array();
+		$binds = array();
+		if($options['event_type'] > -1) {
+			$wheres[] = "event_type=:event_type";
+			$binds[':event_type'] = (int) $options['event_type'];
+		}
+		if($options['qty'] > 1) {
+			$wheres[] = "qty>=:qty";
+			$binds[':qty'] = (int) $options['qty'];
+		}
+		if($options['name']) {
+			$wheres[] = "name LIKE '%" . $database->escapeLike($options['name']) . "%'";
+		}
+		if(count($wheres)) $sql .= 'WHERE ' . implode(' AND ', $wheres) . ' ';
+		$sort = $database->escapeStr($sort);
+
+		// determine total
+		$query = $database->prepare("SELECT COUNT(*) $sql");
+		foreach($binds as $key => $value) $query->bindValue($key, $value);
+		$query->execute();
+		$totalItems = $query->fetchColumn();
+		/** @var ProfilerProArray $a */
+		$events = $this->wire(new ProfilerProArray());
+
+		// load items
+		$sql = 
+			"SELECT *, " . 
+			"UNIX_TIMESTAMP(modified) AS modified, " . 
+			"UNIX_TIMESTAMP(created) AS created " . 
+			"$sql" . 
+			"ORDER BY `$sort` $desc " . 
+			"LIMIT " . ((int) $options['start']) . "," . ((int) $options['limit']);
+		
+		$query = $database->prepare($sql);
+		foreach($binds as $key => $value) $query->bindValue($key, $value);
+		$query->execute();
+		$n = 0;
+		
+		while($row = $query->fetch(\PDO::FETCH_ASSOC)) {
+			$n++;
+			unset($row['total_items']);
+			$eventType = (int) $row['event_type'];
+			$eventTypeName = $this->getEventTypeInfo($eventType, 'name'); 
+			
+			if($options['csvfp']) {
+				unset($row['id'], $row['pages_id']); 
+				if($n === 1) fputcsv($options['csvfp'], array_keys($row));
+				$row['event_type'] = $eventTypeName;
+				$row['request_method'] = array_search($row['request_method'], $this->requestMethods); 
+				$row['created'] = date('Y-m-d H:i:s', $row['created']);
+				$row['modified'] = date('Y-m-d H:i:s', $row['modified']);
+				fputcsv($options['csvfp'], array_values($row));
+				continue;
+			}
+			
+			$event = $events->makeBlankItem();
+			$event->setArray($row);
+			$event->set('event_type_name', $eventTypeName);
+			
+			$requestMethod = array_search($row['request_method'], $this->requestMethods);
+			$event->set('request_method', $requestMethod);
+			$events->add($event);
+		}
+		
+		$query->closeCursor();
+		
+		if($options['csvfp']) {
+			return $n;
+		} else {
+			$events->setSort($options['sort']);
+			$events->setTotal($totalItems);
+			$events->setStart($options['start']);
+			$events->setLimit($options['limit']);
+			$events->setNameFilter($options['name']);
+		}
+		
+		return $events;
+	}
+
+	/**
+	 * Same as the find() method except that it sends a CSV file to the user and halts execution
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param array $options
+	 * 
+	 */
+	public function exportCSV(array $options = array()) {
+		header("Content-type: application/force-download");
+		header("Content-Transfer-Encoding: Binary");
+		header("Content-disposition: attachment; filename=profilerpro-events.csv");
+
+		$fp = fopen('php://output', 'w');
+		$options['csvfp'] = $fp; 
+		$this->find($options);
+		fclose($fp);
+		exit;
+	}
+		
+
+	/**
+	 * Clear profiler events
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param int $eventType Optionally clear only events of a specific type (default=clear all)
+	 * 
+	 */
+	public function clear($eventType = -1) {
+		$table = self::eventsTable;
+		$database = $this->wire('database');
+		$sql = "DELETE FROM $table ";
+		if($eventType > 0) {
+			$sql .= "WHERE event_type=:event_type";
+			$query = $database->prepare($sql);
+			$query->bindValue(':event_type', $eventType, \PDO::PARAM_INT);
+			$query->execute();
+		} else {
+			$database->exec($sql);
+		}
+	}
+
+	/**
+	 * Save all queued events
+	 * 
+	 * This is automatically called at the end of the request
+	 * 
+	 * #pw-internal
+	 * 
+	 * 
+	 */
+	public function maintenance() {
+		
+		if(!count($this->events)) return;
+		if(!$this->forceRunMaintenance && !$this->isActive) return;
+		$this->isActive = 0; // don't record events during maintenance
+		
+		$table = self::eventsTable;
+		$database = $this->wire('database');
+		$columns = $this->columns;
+		$saveFastest = in_array('fast', $columns);
+		$saveSlowest = in_array('slow', $columns);
+		
+		foreach($this->events as $eventID => $event) {
+		
+			$slowestTime = 0.0;
+			$fastestTime = 999.0;
+		
+			if($saveFastest || $saveSlowest) {
+				foreach($event['elapsed_times'] as $elapsedTime) {
+					$elapsedTime = (float) $elapsedTime;
+					if($elapsedTime < $fastestTime) $fastestTime = $elapsedTime;
+					if($elapsedTime > $slowestTime) $slowestTime = $elapsedTime;
+				}
+			}
+			if($fastestTime === 999.0) $fastestTime = 0.0;
+			
+			$sql = 
+				"UPDATE $table SET " . 
+				"total_time=total_time+" . $this->floatStr($event['total_time']) . ", " . 
+				"last_time=:last_time ," . 
+				"qty=qty+" . ((int) $event['qty']) . ", " . 
+				"average_time=total_time/qty, " . 
+				"modified=NOW() " . 
+				"WHERE id=:eventID";
+			
+			$query = $database->prepare($sql);
+			$query->bindValue(':eventID', $eventID, \PDO::PARAM_STR);
+			$query->bindValue(':last_time', $this->floatStr(end($event['elapsed_times'])), \PDO::PARAM_STR); // Note: there is no PARAM_FLOAT
+			
+			try {
+				$query->execute();
+				if($query->rowCount() && ($saveFastest || $saveSlowest)) {
+					// update slowest and fastest times
+					$eventID = $database->quote($event['id']);
+					if($saveSlowest) {
+						$slowest = $this->floatStr($slowestTime);
+						$database->exec(
+							"UPDATE $table SET slowest_time=$slowest " .
+							"WHERE id=$eventID AND slowest_time<$slowest"
+						);
+					}
+					if($saveFastest) {
+						$fastest = $this->floatStr($fastestTime);
+						$database->exec(
+							"UPDATE $table SET fastest_time=$fastest " .
+							"WHERE id=$eventID AND fastest_time>$fastest"
+						);
+					}
+					continue;
+				}
+			} catch(\Exception $e) {
+				continue;
+			}
+		
+			// don't insert new events that meet threshold, but updates to existing are okay
+			if($event['total_time'] <= $this->minTime) continue;
+			
+			$columns = array(
+				'id' => $event['id'], 
+				'event_type' => (int) $event['event_type'], 
+				'name' => $event['name'], 
+				'request_method' => $event['request_method'], 
+				'total_time' => $this->floatStr($event['total_time']), 
+				'average_time' => $this->floatStr($event['total_time'] / $event['qty']),
+				'last_time' => $this->floatStr(end($event['elapsed_times'])), 
+				'fastest_time' => $this->floatStr(round($fastestTime, 4)),
+				'slowest_time' => $this->floatStr(round($slowestTime, 4)), 
+				'pages_id' => (int) $event['pages_id'], 
+				'qty' => (int) $event['qty'], 
+				// created column added manually
+			);
+			
+			$sql =
+				'INSERT INTO ' . $table . ' (' . implode(', ', array_keys($columns)) . ', created) ' . 
+				'VALUES(:' . implode(', :', array_keys($columns)) . ', NOW()) ';
+			
+			$query = $database->prepare($sql);
+			foreach($columns as $column => $value) {
+				$paramType = is_int($value) ? \PDO::PARAM_INT : \PDO::PARAM_STR;
+				$query->bindValue(":$column", $value, $paramType);
+			}
+			
+			try {
+				$query->execute();
+			} catch(\Exception $e) {
+				// failed insert, another request probably beat it
+				// $errors[] = "(type=$event[event_type], name=$event[name], code=" . $e->getCode() . ")";
+			}
+		}
+		
+		$this->events = array();
+	}
+	
+	/**
+	 * Create a Profiler event name for a Hook event
+	 * 
+	 * @param HookEvent $hookEvent
+	 * @param array $hook
+	 * @return string
+	 *
+	 */
+	protected function hookEventName(HookEvent $hookEvent, array $hook) {
+
+		$method = $hookEvent->method;
+		$object = $hookEvent->object;
+		$when = $hookEvent->when;
+		$toMethod = $hook['toMethod'];
+		$toObject = $hook['toObject'];
+		$isClosure = $toMethod instanceof \Closure;
+		$toMethodName = $toObject ? wireClassName($toObject) . '::' : '';
+
+		if($isClosure) {
+			$ref = new \ReflectionFunction($toMethod);
+			$toMethodName .= 'function() in ' . str_replace($this->wire('config')->paths->root, '/', $ref->getFileName());
+		} else {
+			$toMethodName .= "$toMethod()";
+		}
+
+		if(in_array($toMethodName, $this->skipHooks)) return '';
+
+		return $object->className() . "::$method() " . ($when == 'before' ? '← ' : '→ ') . $toMethodName;
+	}
+
+	/**
+	 * Get or set the value of the minTime property
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param float|null $minTime
+	 * @return float
+	 * 
+	 */
+	public function minTime($minTime = null) {
+		if(!is_null($minTime)) $this->minTime = (float) $minTime;
+		return $this->minTime;
+	}
+
+	/**
+	 * Returns a float string safe for use in a database query
+	 * 
+	 * Replaces commas with decimal points (periods)
+	 * 
+	 * @param float|string $value
+	 * @return string
+	 * 
+	 */
+	public function floatStr($value) {
+		$value = (string) (float) $value;
+		if(strpos($value, ',') !== false) {
+			$value = str_replace(',', '.', $value);
+		}
+		return $value;
+	}
+	
+	/**
+	 * Enable use of $profiler as a function
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param string|array $name
+	 * @param null $source
+	 * @return array|null|float
+	 * @throws WireException
+	 * 
+	 */
+	public function __invoke($name, $source = null) {
+		if(is_string($name)) {
+			return $this->start($name, $source);
+		} else if(is_array($name)) {
+			return $this->stop($name);
+		} else {
+			throw new WireException('Call as $event = $profiler("event-name"); to start, or $profiler($event); to stop.');
+		}
+	}
+
+	/**
+	 * Get array of valid sorts in format abbr => sort
+	 * 
+	 * #pw-internal
+	 * 
+	 * @return array
+	 * 
+	 */
+	public function getSorts() {
+		return $this->sorts;
+	}
+	
+	/**
+	 * Install
+	 * 
+	 * #pw-internal
+	 * 
+	 */
+	public function ___install() {
+		
+		$charset = $this->wire('config')->dbCharset;
+	
+		$this->wire('database')->exec(
+			"CREATE TABLE " . self::eventsTable . "(" . 
+				"`id` VARCHAR(40) NOT NULL PRIMARY KEY," .
+				"`name` VARCHAR(200) NOT NULL," . 
+				"`event_type` TINYINT UNSIGNED NOT NULL DEFAULT 0," .
+				"`request_method` TINYINT NOT NULL DEFAULT 0," . 
+				"`total_time` DOUBLE(8,4) NOT NULL DEFAULT 0.0," .
+				"`average_time` DOUBLE(8,4) NOT NULL DEFAULT 0.0," .
+				"`slowest_time` DOUBLE(8,4) NOT NULL DEFAULT 0.0," .
+				"`fastest_time` DOUBLE(8,4) NOT NULL DEFAULT 0.0," .
+				"`last_time` DOUBLE(8,4) NOT NULL DEFAULT 0.0," .
+				"`qty` INT UNSIGNED NOT NULL DEFAULT 1, " .
+				"`pages_id` INT UNSIGNED NOT NULL DEFAULT 0," . 
+				"`modified` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " .
+				"`created` DATETIME NOT NULL, " .
+				"INDEX `event_type` (`event_type`), " . 
+				"INDEX `name` (`name`)," .
+				"INDEX `total_time` (`total_time`)," . 
+				"INDEX `qty` (`qty`), " .
+				"INDEX `created` (`created`), " . 
+				"INDEX `modified` (`modified`) " . 
+			") ENGINE=InnoDB DEFAULT CHARSET=$charset"
+		);
+	}
+
+	/**
+	 * Uninstall
+	 * 
+	 * #pw-internal
+	 * 
+	 */
+	public function ___uninstall() {
+		try {
+			$this->wire('database')->exec('DROP TABLE ' . self::eventsTable);
+		} catch(\Exception $e) {
+		}
+	}
+
+	/**
+	 * Configure
+	 * 
+	 * #pw-internal
+	 * 
+	 * @param InputfieldWrapper $inputfields
+	 * 
+	 */
+	public function getModuleConfigInputfields(InputfieldWrapper $inputfields) {
+	
+		/** @var ProcessProfilerPro $process */
+		if($this->modules->isInstalled('ProcessProfilerPro')) {
+			$process = $this->modules->get('ProcessProfilerPro');
+			if($process) {
+				$f = $process->buildConfigTab();
+				$inputfields->add($f);
+			}
+		}
+	}
+
+}

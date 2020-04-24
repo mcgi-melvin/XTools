@@ -1,0 +1,54 @@
+#ProcessProfilerPro {
+  display: none; }
+  #ProcessProfilerPro button.submit_start,
+  #ProcessProfilerPro button.submit_stop,
+  #ProcessProfilerPro button.submit_refresh {
+    display: none; }
+  #ProcessProfilerPro button.submit_exportCSV,
+  #ProcessProfilerPro button.submit_clear {
+    float: right;
+    margin-left: 0.75em; }
+  #ProcessProfilerPro .ProfilerEventsTable .AdminDataTable tr th {
+    white-space: nowrap; }
+  #ProcessProfilerPro .ProfilerEventsTable .AdminDataTable tr td {
+    white-space: nowrap; }
+    #ProcessProfilerPro .ProfilerEventsTable .AdminDataTable tr td .table-sort-value,
+    #ProcessProfilerPro .ProfilerEventsTable .AdminDataTable tr td .pwpp-event-id {
+      display: none; }
+    #ProcessProfilerPro .ProfilerEventsTable .AdminDataTable tr td .pwpp-units {
+      font-weight: normal;
+      padding-left: 1px; }
+  #ProcessProfilerPro .ProfilerEventsTable .AdminDataTable tr td:first-child {
+    white-space: normal;
+    overflow: hidden; }
+  #ProcessProfilerPro .ProfilerEventsTable .AdminDataTable tfoot td {
+    border-bottom: none; }
+  #ProcessProfilerPro .ProfilerEventsTable .pwpp-filter-toggle {
+    float: right;
+    margin-right: 0.5em; }
+  #ProcessProfilerPro .ProfilerEventsTable .toggle-icon {
+    display: none; }
+  #ProcessProfilerPro #wrap_pwpp-filter {
+    display: none; }
+
+.pwpp-zero {
+  color: #ccc; }
+
+.pwpp-graph-donut,
+.pwpp-graph-pie {
+  display: none; }
+
+body.pwpp-tab-ProfilerConfig .pwpp-hidden-for-config {
+  display: none; }
+
+body:not(.pwpp-tab-ProfilerConfig) .pwpp-hidden-not-config {
+  display: none; }
+
+svg.peity {
+  position: relative;
+  top: 3px; }
+
+button.submit_refresh {
+  outline: none; }
+
+/*# sourceMappingURL=ProcessProfilerPro.css.map */

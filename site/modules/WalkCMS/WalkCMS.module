@@ -1,0 +1,150 @@
+<?php
+namespace ProcessWire;
+/**
+ * This is the Walk Creative CMS module
+ *
+ * @author Alan Logan (Walk Creative Pty Ltd)
+ *
+ * https://walkcreative.com.au
+ * Created 24 December 2017
+ *
+ * ProcessWire 3.x
+ * Copyright (C) 2011 by Ryan Cramer
+ * http://www.processwire.com
+ *
+ */
+
+class WalkCMS extends WireData implements Module {
+
+	public $tplToTransfer = ['walkpageelements','rowgroup','row','column','walkContentBlockElement',
+		'form-builder','form-subpage','form-field'];
+
+	public $autonameTpls = ['walkpageelements' => 'rowgroup', 'rowgroup' => 'row', 'row' => 'column', 'column' => 'walkContentBlockElement',
+		'form-builder' => 'form-subpage', 'form-subpage' => 'form-field'];
+
+	public $retitleTpls = ['form-field'];
+
+	/**
+	 * Return information about this module (required).
+	 *
+	 * @access public
+	 * @return array of information.
+	 *
+	 */
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Walk Creative CMS',
+			'summary' => 'Base CMS module that makes PW even better',
+			'author' => 'Alan Logan',
+			'href' => 'https://walkcreative.com.au',
+			'version' => 100,
+			'installs' => array('InputfieldWalkBuilder','FieldtypeWalkBuilder'),
+			'requires' => 'FieldtypePageTable',
+			'singular' => true,
+			'autoload' => true
+		);
+	}
+
+	public function init() {
+		$this->config->scripts->add($this->config->urls->site . "modules/WalkCMS/WalkCMS.js");
+		// add a hook before the page is added (to auto generate a name)
+		$this->pages->addHookBefore('ProcessPageAdd::execute', $this, 'generateName');
+		// add a hook after the $pages->save
+		$this->pages->addHookAfter('save', $this, 'afterPageSave');
+		$this->pages->addHookBefore('save', $this, 'beforePageSave');
+	}
+
+	public function beforePageSave($event) {
+		$thispage = $event->arguments[0];
+		if($thispage->template == "form-field") {
+			/** @var WalkFormField $thispage */
+			$ctpage = $this->wire->pages->get($thispage->form_field_type->id);
+			$event->arguments[0]->title = $ctpage->title . ": " . $thispage->qtext;
+		}
+	}
+
+	public function afterPageSave($event) {
+		$mypage = $event->arguments[0];
+		$isModal = intval($this->input->get->modal);
+		$isNewPage = intval($this->input->get->isNewPage);
+//		// we want to create subpage only when using the Builder template (and if it doesn't already exist)
+//		if (($mypage->template == 'builder' or $mypage->template == "builder-insert") and $mypage->numChildren == 0) {
+//			$p = new Page();
+//			$p->template = $this->templates->get("walkpageelements");
+//			$p->parent = $mypage;
+//			$p->title = "Page Blocks";
+//			$p->name = "page-blocks";
+//			$p->addStatus(Page::statusHidden);
+//			$p->save();
+//			$this->message("Subpage PageElements created.");
+//		}
+//		//create blank Row and Column children when a new Rowgroup is created
+//		if($mypage->template == "rowgroup") {
+//			if($mypage->numChildren == 0 and $mypage->chunk_embed == "" and $mypage->reuseRowGroup == "") {
+//				$prow = new Page();
+//				$prow->template = $this->templates->get("row");
+//				$prow->parent = $mypage;
+//				$prow->title = "Row-1";
+//				$prow->save();
+//				$this->message("Subpage Row created.");
+//				//when this Row page is saved it will automatically create the column also (in the following "else if" statement)
+//			}
+//		}
+//		else if($mypage->template == "row" and $mypage->numChildren == 0 and $mypage->reuseRow == "") {
+//			//create blank Column children when a new Row is created
+//			$this->createNewColpage($mypage);
+//		}
+		//now handle what to do if this is a modal popup
+		if(in_array($mypage->template, $this->tplToTransfer) and $isNewPage !== 1 and $isModal === 1) {
+			wire("session")->redirect($this->wire->config->urls->root."post/admin/close-modal.php");
+		}
+	}
+
+//	protected function createNewColpage($parentpage) {
+//		$pcol = new Page();
+//		$pcol->template = $this->templates->get("column");
+//		$pcol->parent = $parentpage;
+//		$pcol->title = "Column-1";
+//		$pcol->save();
+//		$this->message("Subpage Column created.");
+//	}
+
+	public function generateName() {
+		$parid = $this->input->get->parent_id;
+		$parpage = $this->wire->pages->get($parid);
+		$partpl = $parpage->template;
+		$newTemplate = $this->autonameTpls[$partpl->name];
+		if (in_array($partpl, $this->tplToTransfer)) {
+			$p = new Page();
+			$p->parent = $this->input->get->parent_id;
+			$p->template = $newTemplate;
+			$p->name = date("Y m d H:i:s");
+			$p->removeStatus(Page::statusUnpublished);
+			$p->save();
+			$this->wire->session->redirect("../edit/?id=$p->id");
+		}
+	}
+
+	public function ___install() {
+
+	}
+
+
+	public function ___uninstall() {
+
+	}
+
+	/**
+	 * Set some key properties for use throughout the class.
+	 *
+	 * @access public
+	 *
+	 */
+	public function __construct() {
+
+	}
+
+}
+
+
+

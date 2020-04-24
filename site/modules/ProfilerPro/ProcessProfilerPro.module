@@ -1,0 +1,878 @@
+<?php namespace ProcessWire;
+
+/**
+ * ProfilerPro Process
+ * 
+ * DO NOT DISTRIBUTE
+ * This is a commercial module from the ProDevTools package.
+ * These files may not be placed in any public repository.
+ *
+ * Copyright (C) 2016 by Ryan Cramer
+ * https://processwire.com
+ *
+ * 
+ */
+
+class ProcessProfilerPro extends Process {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Profiler Pro',
+			'version' => 1,
+			'summary' => 'Tool that helps you record, list and analyze profiler events.',
+			'icon' => 'tachometer',
+			'author' => 'Ryan Cramer Design, LLC',
+			'autoload' => false,
+			'requires' => 'ProfilerPro',
+			'permission' => 'profiler',
+			'permissions' => array('profiler' => 'Use ProfilerPro'),
+			'useNavJSON' => true, 
+			'page' => array(
+				'name' => 'profiler',
+				'parent' => 'setup',
+				'title' => 'Profiler'
+			),
+		);
+	}
+	
+	protected $columnLabels = array();	
+	protected $columnLabelsVerbose = array();
+	protected $labels = array();
+	
+	/**
+	 * Longest average indexed by event type
+	 *
+	 * @var array
+	 *
+	 */
+	protected $avgLongest = array();
+
+	/**
+	 * Longest total indexed by event type
+	 *
+	 * @var array
+	 *
+	 */
+	protected $totLongest = array();
+
+	/**
+	 * Whether or not the profiler is active
+	 * 
+	 * @var int
+	 * 
+	 */
+	protected $isActive = 0;
+
+	/**
+	 * Construct
+	 * 
+	 */
+	public function __construct() {
+		parent::__construct();
+		
+		$this->labels = array(
+			'start' => $this->_('Start profiling'),
+			'stop' => $this->_('Stop profiling'), 
+			'config' => $this->_('Config'), 
+		);
+	
+		$this->columnLabels = array(
+			'avg' => $this->_('Avg'),
+			'total' => $this->_('Total'),
+			'last' => $this->_('Last'), 
+			'fast' => $this->_('Fast'), 
+			'slow' => $this->_('Slow'),
+			'qty' => $this->_('Qty'),
+			'created' => $this->_('Since'),
+			'modified' => $this->_('Newest'),
+		);
+
+		$this->columnLabelsVerbose = array(
+			'avg' => $this->_('Average time'),
+			'total' => $this->_('Total accumulated time'),
+			'last' => $this->_('Last recorded time'),
+			'fast' => $this->_('Fastest recorded time'),
+			'slow' => $this->_('Slowest recorded time'),
+			'qty' => $this->_('Quantity of events'),
+			'created' => $this->_('Since (time since created)'),
+			'modified' => $this->_('Newest (time since last updated)'),
+		);
+	
+		$pie = $this->_('pie graph');
+		$donut = $this->_('donut graph');
+		$this->columnLabels['avg2'] = $this->columnLabels['avg'];
+		$this->columnLabels['avg3'] = $this->columnLabels['avg'];
+		$this->columnLabels['total2'] = $this->columnLabels['total'];
+		$this->columnLabels['total3'] = $this->columnLabels['total'];
+		$this->columnLabelsVerbose['avg2'] = $this->columnLabelsVerbose['avg'] . " + $pie";
+		$this->columnLabelsVerbose['avg3'] = $this->columnLabelsVerbose['avg'] . " + $donut";
+		$this->columnLabelsVerbose['total2'] = $this->columnLabelsVerbose['total'] . " + $pie";
+		$this->columnLabelsVerbose['total3'] = $this->columnLabelsVerbose['total'] . " + $donut";
+		
+		$this->isActive = $this->wire('modules')->getConfig('ProfilerPro', 'active');
+	}
+
+	/**
+	 * NavJSON Process module implementation
+	 * 
+	 * @param array $options
+	 * @return string
+	 * 
+	 */
+	public function ___executeNavJSON(array $options = array()) {
+		/** @var ProfilerPro $profiler */
+		$profiler = $this->wire('profiler');
+		$eventTypeInfo = $profiler->getEventTypeInfo();
+		$options['items'] = array();
+		$options['edit'] = './?WireTab={id}';
+		$options['add'] = './?profiler_toggle=' . $this->isActive ? 'off' : 'on';
+		$options['addLabel'] = $this->isActive ? $this->labels['stop'] : $this->labels['start'];
+		$options['addIcon'] = $this->isActive ? 'hand-stop-o' : 'hand-o-right';
+		$options['sort'] = false;
+		foreach($profiler->recordTypes as $eventType) {
+			if(!isset($eventTypeInfo[$eventType])) continue;
+			$options['items'][] = array(
+				'id' => "ProfilerEvents-$eventType",
+				'name' => $eventTypeInfo[$eventType]['label'],
+				'icon' => $eventTypeInfo[$eventType]['icon'],
+			);
+		}
+		$options['items'][] = array(
+			'id' => 'ProfilerConfig', 
+			'name' => $this->labels['config'], 
+			'icon' => 'gear', 
+			'_class' => 'highlight', 
+		);
+		return parent::___executeNavJSON($options);
+	}
+
+	/**
+	 * Primary action: list events
+	 * 
+	 */
+	public function ___execute() {
+
+		/** @var ProfilerPro $profiler */
+		$profiler = $this->wire('profiler');
+		$input = $this->input;
+		$sanitizer = $this->sanitizer('sanitizer');
+		$config = $this->config;
+		$eventTypeInfo = $profiler->getEventTypeInfo();
+		
+		if($input->post('submit_start') || $input->get('profiler_toggle') === 'on') {
+			$profiler->saveActive(true);
+			$this->isActive = 1;
+			$this->message($this->_('Profiling has started'));
+		} else if($input->post('submit_stop') || $input->get('profiler_toggle') === 'off') {
+			$profiler->saveActive(false);
+			$this->isActive = 0;
+			$this->message($this->_('Profiling has stopped'));
+		}
+
+		$config->scripts->add($config->urls->{$this->className()} . 'jquery.peity.min.js');
+		/** @var JqueryUI $jQueryUI */
+		$jQueryUI = $this->modules->get('JqueryUI');
+		$jQueryUI->use('modal');
+		
+		$showEventType = $input->get('event_type');
+		if(!is_null($showEventType)) $showEventType = (int) $showEventType;
+		
+		$sort = $sanitizer->name($input->get('sort')); 
+		$pageNum = (int) $input->get('page');
+		if($pageNum > 1) $input->setPageNum($pageNum);
+	
+		$name = $name = $input->get('name') ? $sanitizer->text($input->get('name')) : '';
+	
+		/** @var InputfieldForm $form */
+		$form = $this->modules->get('InputfieldForm');
+		$form->attr('id', 'ProcessProfilerPro');
+		$form->attr('data-pwpp-refresh', $profiler->refreshSecs * 1000);
+		if($this->isActive) $form->addClass('pwpp-active');
+		$this->modules->get('JqueryWireTabs');
+	
+		foreach($profiler->recordTypes as $eventType) {
+		
+			if(!isset($eventTypeInfo[$eventType])) continue;
+			$tabLabel = $eventTypeInfo[$eventType]['label'];
+			if($showEventType !== null && $eventType != $showEventType) continue;
+			
+			if($input->post('submit_clear_' . $eventType)) {
+				$profiler->clear($eventType);
+				$this->message(sprintf($this->_('Cleared “%s” profiler events.'), $tabLabel));
+			} else if($input->post('submit_exportCSV_' . $eventType)) {
+				$profiler->exportCSV(array('event_type' => $eventType));
+			}
+			
+			$query = array(
+				'event_type' => (int) $eventType,
+				'sort' => $sort ? $sort : '',
+				'name' => $name
+			);
+			
+			$events = $profiler->find($query);
+			
+			$form->add($this->buildEventsTab($events, $eventType, $tabLabel));
+		}
+		
+		$form->add($this->buildConfigTab());
+		
+		/** @var InputfieldSubmit $button */
+		$button = $this->wire('modules')->get('InputfieldSubmit');
+		$button->attr('name', 'submit_refresh');
+		$button->attr('value', $this->_('Refresh'));
+		$button->showInHeader();
+		$button->addClass('submit_refresh pwpp-hidden-for-config');
+		$button->icon = 'refresh';
+		$form->add($button);
+		
+		if($this->isActive) {
+			$button = $this->wire('modules')->get('InputfieldSubmit');
+			$button->attr('name', 'submit_stop');
+			$button->attr('value', $this->labels['stop']);
+			$button->showInHeader()->setSecondary();
+			$button->addClass('submit_stop pwpp-hidden-for-config');
+			$button->icon = 'hand-stop-o';
+			$form->add($button);
+		} else {
+			$button = $this->wire('modules')->get('InputfieldSubmit');
+			$button->attr('name', 'submit_start');
+			$button->attr('value', $this->labels['start']);
+			$button->showInHeader();
+			$button->addClass('submit_start pwpp-hidden-for-config');
+			$button->icon = 'hand-o-right';
+			$form->add($button);
+		}
+
+		/** @var InputfieldText $f */
+		$f = $this->wire('modules')->get('InputfieldText');
+		$f->attr('id', 'pwpp-filter');
+		$f->attr('name', 'find');
+		$f->label = $this->_('Filter');
+		$f->icon = 'search';
+		$form->prepend($f);
+		
+		$out = $form->render();
+
+		foreach($this->avgLongest as $eventType => $longestTime) {
+			$out = str_replace("{avgLongest$eventType}", $profiler->floatStr($longestTime), $out);
+		}
+		foreach($this->totLongest as $eventType => $longestTime) {
+			$out = str_replace("{totLongest$eventType}", $profiler->floatStr($longestTime), $out);
+		}
+		
+		return $out;
+	}
+
+
+	/**
+	 * Build a tab/section of events of a specific type
+	 * 
+	 * @param ProfilerProArray $events
+	 * @param int $eventType
+	 * @param string $tabLabel
+	 * @return InputfieldWrapper
+	 * 
+	 */
+	protected function buildEventsTab(ProfilerProArray $events, $eventType, $tabLabel) {
+		
+		$input = $this->input;
+		$modules = $this->modules;
+		$sanitizer = $this->sanitizer;
+		
+		/** @var ProfilerPro $profiler */
+		$profiler = $this->wire('profiler');
+		$info = $profiler->getEventTypeInfo($eventType);
+		
+		/** @var InputfieldWrapper $tab */
+		$tab = $modules->get('InputfieldFieldset');
+		$tab->addClass('WireTab');
+		$tab->attr('title', $tabLabel);
+		$tab->attr('id', 'ProfilerEvents-' . $eventType);
+
+		/** @var InputfieldMarkup $markup */
+		$markup = $modules->get('InputfieldMarkup');
+		$markup->attr('id', 'ProfilerEventsTable-' . $eventType);
+		$markup->addClass('ProfilerEventsTable');
+		$markup->entityEncodeLabel = false;
+		$markup->label = 
+			"<i class='fa fa-" . $info['icon'] . "'></i> " . 
+			$sanitizer->entities($info['description']) . 
+			"<a class='pwpp-filter-toggle'><i class='fa fa-fw fa-search'></i></a>";
+		$tab->add($markup);
+
+		/** @var InputfieldSubmit $clear */
+		$clear = $modules->get('InputfieldSubmit');
+		$clear->attr('name', 'submit_clear_' . $eventType);
+		$clear->addClass('submit_clear');
+		$clear->attr('value', sprintf($this->_('Clear “%s” Events'), $tabLabel));
+		$clear->icon = 'trash-o';
+		
+		/** @var InputfieldSubmit $export */
+		$export = $modules->get('InputfieldSubmit');
+		$export->attr('name', 'submit_exportCSV_' . $eventType);
+		$export->addClass('submit_exportCSV');
+		$export->attr('value', sprintf($this->_('Export to CSV'), $tabLabel));
+		$export->icon = 'file-excel-o';
+		
+		$pagination = '';
+		if($events->getTotal() > $events->getLimit()) {
+			$input->whitelist('event_type', $eventType);
+			/** @var MarkupPagerNav $pager */
+			$pager = $modules->get('MarkupPagerNav');
+			$pagination = $pager->render($events);
+			$input->whitelist('event_type', null);
+		}
+
+		$table = $this->buildEventsTable($events, $eventType);
+		$nameFilter = $sanitizer->entities($events->getNameFilter());
+
+		$markup->attr('value',
+			$pagination .
+			$table->render() .
+			"<small>" . $clear->render() . $export->render() . "</small>" .
+			$pagination .
+			$this->renderEventTypeNotes($eventType) .
+			"<input type='hidden' class='pwpp-pageNum' value='$input->pageNum' />" .
+			"<input type='hidden' class='pwpp-nameFilter' value='$nameFilter' />" 
+		);
+		
+		return $tab;
+	}
+	
+
+	/**
+	 * Build a table listing events of a specific type
+	 * 
+	 * @param ProfilerProArray $events
+	 * @param int $eventType
+	 * @return MarkupAdminDataTable
+	 * 
+	 */
+	protected function buildEventsTable(ProfilerProArray $events, $eventType) {
+		
+		$modules = $this->modules;
+		
+		/** @var ProfilerPro $profiler */
+		$profiler = $this->wire('profiler');
+		
+		/** @var array $columns */
+		$columns = $profiler->get('columns');
+		
+		$oldest = 0;
+		$newest = 0;
+		$average = 0.0;
+		$total = 0.0;
+		$qty = 0;
+		$cnt = 0;
+
+		$this->avgLongest[$eventType] = 0.0;
+		$this->totLongest[$eventType] = 0.0;
+
+		/** @var MarkupAdminDataTable $table */
+		$table = $modules->get('MarkupAdminDataTable');
+		$table->setEncodeEntities(false);
+		$table->setSortable(false);
+	
+		$headerColumns = array_merge(array('name'), $columns);
+		$sort = array_search(ltrim($events->getSort(), '-'), $profiler->getSorts());
+		$sortDesc = strpos($events->getSort(), '-') === 0;
+		
+		foreach($headerColumns as $column) {
+			if(strpos($column, '-') === 0) continue; // column excluded from display
+			$sortClass = 'pwpp-sort';
+			$iconClass = 'pwpp-sort-icon fa fa-fw';
+			$col = rtrim($column, '12345');
+			$columnLabel = $col == 'name' ? $this->_('Name') : $this->columnLabels[$col];
+			$columnTitle = $col == 'name' ? '' : $this->columnLabelsVerbose[$col];
+			$columnSort = $col;
+			if($col == ltrim($sort, '-')) {
+				$sortClass .= ' pwpp-sort-active';
+				$iconClass .= ' fa-caret-' . ($sortDesc ? 'down' : 'up');
+				$columnSort = $sortDesc ? "-$sort" : $sort;
+			}
+			$headerRow[] =
+				"<span class='$sortClass' data-sort='$columnSort' title='$columnTitle'>" .
+					$columnLabel .
+					"<i class='$iconClass'></i>" . 
+				"</span>";	
+		}
+		
+		$table->headerRow($headerRow);
+
+		foreach($events as $n => $event) {
+			$row = $this->buildEventRow($event, $eventType, $columns);	
+			$table->row($row);
+			$average += $event->average_time;
+			$total += $event->total_time;
+			$qty += $event->qty;
+
+			if(!$oldest || $event->created < $oldest) $oldest = $event->created;
+			if($event->modified > $newest) $newest = $event->modified;
+			$cnt++;
+		}
+		
+		if(!count($events)) {
+			$table->row(array(sprintf($this->_('No events found')), '', '', '', ''));
+		}
+
+		return $table;
+	}
+
+	/**
+	 * Build a Profiler event row
+	 * 
+	 * @param ProfilerProEvent $event
+	 * @param int $eventType
+	 * @param array $columns
+	 * @return array
+	 *
+	 */
+	protected function buildEventRow(ProfilerProEvent $event, $eventType, $columns) {
+
+		$sanitizer = $this->wire('sanitizer');
+		$rootURL = rtrim($this->config->urls('root'), '/');
+		$name = $event->get('name');
+		$nameType = '';
+		$nameTypeIcons = array(
+			'LOAD' => 'fa-file-image-o',
+			'READY' => 'fa-file-o',
+		);
+
+		// map FileCompiler files to their original
+		if(strpos($name, '/FileCompiler/')) {
+			$name = str_replace($this->config->urls('cache') . 'FileCompiler/', '/', $name);
+			$name .= " ...";
+		}
+	
+		// if event name has a tab, split it into a type and name for better visual separation and optional icon
+		if(strpos($name, "\t")) list($nameType, $name) = explode("\t", $name);
+		$name = $sanitizer->entities($name);
+	
+		// for pageview and JS events the name is a URL so link it
+		if($eventType == 1) {
+			// TemplateFile events
+			$parts = explode('/', $name);
+			$lastPart = array_pop($parts);
+			$name = "<span class='detail'>" . implode('/', $parts) . "/</span><strong>$lastPart</strong>";
+		} else if($eventType == 3 || $eventType == 6) { 
+			$_name = $name;
+			$href = $rootURL . $name;
+			$name = "<a class='pw-modal-large pw-modal-longclick' href='$href'>$name</a>";
+			if($_name === '/') $name .= " <span class='detail'>" . $this->_('(home)') . "</span>";
+		} else if($eventType == 5) {
+			// $pages events
+			if(strpos($name, '(')) {
+				$parts = explode('(', $name, 2);
+				$name = "<strong>$parts[0]</strong>($parts[1]";
+			}
+		}
+	
+		// if nameType is present use it
+		if($nameType) {
+			if(isset($nameTypeIcons[$nameType])) {
+				$name = "<i class='fa fa-fw " . $nameTypeIcons[$nameType] . "'></i> $name";
+			} else {
+				$nameType = $sanitizer->entities($nameType);
+				$name = "<span class='detail'>$nameType</span> $name";
+			}
+		}
+
+		if($event->get('request_method') != 'GET') {
+			$name .= " <span class='detail'>$event->request_method</span>";
+		}
+
+		if((float) $event->average_time > $this->avgLongest[$eventType]) {
+			$this->avgLongest[$eventType] = (float) $event->average_time;
+		}
+
+		if((float) $event->total_time > $this->totLongest[$eventType]) {
+			$this->totLongest[$eventType] = (float) $event->total_time;
+		}
+
+		$avgTime = $this->timeStr($event->average_time);
+		$totTime = $this->timeStr($event->total_time);
+
+		if($event->qty > 1) {
+			$lastTime = $this->timeStr($event->last_time);
+			$fastestTime = $this->timeStr($event->fastest_time);
+			$slowestTime = $this->timeStr($event->slowest_time);
+		} else {
+			$lastTime = '&nbsp;';
+			$fastestTime = '&nbsp;';
+			$slowestTime = '&nbsp;';
+		}
+
+		$avgChart = "$event->average_time_str/{avgLongest$eventType}";
+		$avgDonutChart = "<span class='pwpp-graph-donut'>$avgChart</span>";
+		$avgPieChart = "<span class='pwpp-graph-pie'>$avgChart</span>";
+		$totChart = "$event->total_time_str/{totLongest$eventType}";
+		$totDonutChart = "<span class='pwpp-graph-donut'>$totChart</span>";
+		$totPieChart = "<span class='pwpp-graph-pie'>$totChart</span>";
+
+		$row = array("$name<span class='pwpp-event-id'>$event->id</span>");
+
+		foreach($columns as $column) {
+			switch($column) {
+				case 'avg':
+					$row[] = $this->tableSortVal($avgTime) . "<strong>$avgTime</strong>";
+					break;
+				case 'avg2':
+					$row[] = $this->tableSortVal($avgTime) . "$avgPieChart <strong>$avgTime</strong>";
+					break;
+				case 'avg3':
+					$row[] = $this->tableSortVal($avgTime) . "$avgDonutChart <strong>$avgTime</strong>";
+					break;
+				case 'total':
+					$row[] = $this->tableSortVal($totTime) . $totTime;
+					break;
+				case 'total2':
+					$row[] = $this->tableSortVal($totTime) . "$totPieChart $totTime";
+					break;
+				case 'total3':
+					$row[] = $this->tableSortVal($totTime) . "$totDonutChart $totTime";
+					break;
+				case 'last':
+					$row[] = $lastTime;
+					break;
+				case 'fast':
+					$row[] = $fastestTime;
+					break;
+				case 'slow':
+					$row[] = $slowestTime;
+					break;
+				case 'qty':
+					$row[] = $event->qty;
+					break;
+				case 'created':
+					$row[] = $this->tableSortVal($event->created) . $this->relTime($event->created);
+					break;
+				case 'modified':
+					$row[] = $this->tableSortVal($event->modified) . $this->relTime($event->modified);
+					break;
+			}
+		}
+		
+		return $row;
+	}
+
+	protected function tableSortVal($val) {
+		if(is_float($val) && strpos((string) $val, ',') !== false) {
+			$val = str_replace(',', '.', $val);
+		}
+		return "<span class='table-sort-value'>$val</span>";
+	}
+	
+	protected function renderEventTypeNotes($eventType) {
+		$p1 = __('To profile a block of code, place the line below where you want to start:');
+		$p2 = __('Then place this line below where you want to stop:');
+		if($eventType == 0) {
+			$funcName = $this->config->useFunctionsAPI ? 'profiler' : 'wireProfiler';
+			$notes =
+				"<p class='detail' style='margin:0'>$p1</p>" .
+				"<pre>\$event = \$profiler->start('your-event-name');</pre>" .
+				"<p class='detail' style='margin:0'>$p2</p>" .
+				"<pre>\$profiler->stop(\$event);</pre>" .
+				"<p class='detail' style='margin:0'>" .
+				sprintf(__('If $profiler is not in scope, replace $profiler above with %s.'), "$funcName()") .
+				"</p>";
+		} else if($eventType == 6) {
+			$notes =
+				"<p>" .
+				"<i class='fa fa-fw fa-file-image-o'></i> " .
+				"<span class='detail'>" . __('Indicates times to reach fully loaded (window.load) state, with all assets/images visible.') . "</span>" .
+				"<br />" .
+				"<i class='fa fa-fw fa-file-o'></i> " .
+				"<span class='detail'>" . __('Indicates times taken to reach DOM ready (document.ready) state.') . "</span>" .
+				"</p>";
+		} else if($eventType == 7) {
+			$notes =
+				"<p class='detail' style='margin:0'>$p1</p>" .
+				"<pre>var event = profiler.start('your-event-name');</pre>" .
+				"<p class='detail' style='margin:0'>$p2</p>" .
+				"<pre>profiler.stop(event);</pre>" .
+				"<p class='detail' style='margin:0'>" . __("You can use profiler.stop('your-event-name') rather than profiler.stop(event) if preferred.");
+		} else {
+			$notes = '';
+		}
+		return $notes;
+	}
+	
+	/**
+	 * Build the "config" tab
+	 *
+	 * @return InputfieldFieldset
+	 *
+	 */
+	public function buildConfigTab() {
+
+		$modules = $this->modules;
+
+		/** @var ProfilerPro $profiler */
+		$profiler = $this->wire('profiler');
+		$yes = $this->_('Yes');
+		$no = $this->_('No');
+
+		/** @var InputfieldWrapper $tab */
+		$tab = $modules->get('InputfieldFieldset');
+		$tab->addClass('WireTab');
+		$tab->attr('title', $this->labels['config']);
+		$tab->attr('id', 'ProfilerConfig');
+
+		/** @var InputfieldRadios $f */
+		$f = $this->modules->get('InputfieldRadios');
+		$f->attr('name', 'active');
+		$f->label = $this->_('Profiler enabled?');
+		$f->addOption(1, $yes);
+		$f->addOption(0, $no);
+		$f->attr('value', $this->isActive ? 1 : 0);
+		$f->optionColumns = 1;
+		$f->icon = 'toggle-on';
+		$f->columnWidth = 50;
+		$tab->add($f);
+		
+		/** @var InputfieldRadios $f */
+		$f = $this->modules->get('InputfieldRadios');
+		$f->attr('name', 'userLimit');
+		$f->label = $this->_('Record events for ');
+		$f->addOption(0, $this->_('Everyone'));
+		$f->addOption(2, $this->_('Superuser only (for testing)'));
+		$f->attr('value', (int) $profiler->userLimit);
+		$f->optionColumns = 1;
+		$f->columnWidth = 50;
+		$tab->add($f);
+
+		/** @var InputfieldAsmSelect $f */
+		$f = $modules->get('InputfieldAsmSelect');
+		$f->attr('name', 'recordTypes');
+		$f->label = $this->_('Event types to record');
+		$f->description = $this->_('Select the event types you want to log and display. Each will be given a tab in this tool. Drag to change order.');
+		$f->notes = $this->_('JS events are client-side, while the rest are server-side.') . ' ' .
+			$this->_('JS events also trigger a server request behind the scenes, so avoid leaving them unmonitored in production environments.');
+		foreach($profiler->getEventTypeInfo() as $eventType => $info) {
+			$f->addOption($eventType, $info['label'], array('data-desc' => $info['description']));
+		}
+		$f->attr('value', $profiler->recordTypes);
+		$tab->add($f);
+
+		/** @var InputfieldAsmSelect $f */
+		$f = $modules->get('InputfieldAsmSelect');
+		$f->attr('name', 'columns');
+		$f->label = $this->_('Columns to display');
+		foreach($this->columnLabelsVerbose as $name => $label) {
+			if($name == 'name') continue;
+			$f->addOption($name, $label);
+		}
+		$value = $profiler->get('columns');
+		foreach($value as $k => $v) {
+			if(strpos($v, '-') === 0) unset($value[$k]);
+		}
+		$f->attr('value', $value);
+		$tab->add($f);
+
+		/** @var InputfieldRadios $f */
+		$f = $modules->get('InputfieldRadios');
+		$f->attr('name', 'precision');
+		$f->label = $this->_('Time precision');
+		$f->description = $this->_('Time precision to show in event lists (for display purposes only).');
+		$f->addOption(1, round(0.1, 1));
+		$f->addOption(2, round(0.01, 2));
+		$f->addOption(3, round(0.001, 3));
+		$f->addOption(4, round(0.0001, 4));
+		$f->optionColumns = 1;
+		$f->columnWidth = 50;
+		$f->attr('value', $profiler->get('precision'));
+		$tab->add($f);
+
+		$f = $modules->get('InputfieldRadios');
+		$f->attr('name', 'timeFormat');
+		$f->label = $this->_('Time format');
+		$f->addOption(ProfilerPro::timeFormatS, $this->_('Seconds (decimal, default)'));
+		$f->addOption(ProfilerPro::timeFormatMS, $this->_('Milliseconds (integer)'));
+		$f->attr('value', $profiler->get('timeFormat'));
+		$f->columnWidth = 50;
+		$tab->add($f);
+
+		/** @var InputfieldText $f */
+		$f = $modules->get('InputfieldText');
+		$f->attr('name', 'minTime');
+		$f->label = $this->_('Minimum time threshold');
+		$f->description = $this->_('The minimum elapsed time required before an event will be recorded.');
+		$f->attr('value', $profiler->minTime());
+		$f->columnWidth = 33;
+		$tab->add($f);
+		
+		/** @var InputfieldText $f */
+		$f = $modules->get('InputfieldText');
+		$f->attr('name', 'minQty');
+		$f->label = $this->_('Minimum quantity threshold');
+		$f->description = $this->_('The minimum number of events required before time are shown.');
+		$f->attr('value', $profiler->minQty);
+		$f->columnWidth = 34;
+		$tab->add($f);
+
+		/** @var InputfieldInteger $f */
+		$f = $modules->get('InputfieldInteger');
+		$f->attr('name', 'refreshSecs');
+		$f->label = $this->_('Refresh every [n] seconds');
+		$f->description = $this->_('The list of events here will automatically refresh every [n] seconds.');
+		$f->attr('value', $profiler->refreshSecs);
+		$f->columnWidth = 33;
+		$tab->add($f);
+
+		$templates = array();
+		foreach($this->templates as $template) {
+			$templates[$template->name] = $template;
+		}
+		ksort($templates);
+		/** @var InputfieldAsmSelect $f */
+		$f = $modules->get('InputfieldAsmSelect');
+		$f->attr('name', 'skipTemplates');
+		$f->label = $this->_('Skip templates');
+		$f->description = $this->_('Do not track events when current page uses templates selected here.');
+		foreach($templates as $template) {
+			$f->addOption($template->id, $template->name);
+		}
+		$f->attr('value', $profiler->skipTemplates);
+		$f->collapsed = Inputfield::collapsedYes;
+		$tab->add($f);
+
+		/** @var InputfieldAsmSelect $f */
+		$f = $modules->get('InputfieldAsmSelect');
+		$f->attr('name', 'onlyTemplates');
+		$f->label = $this->_('Limit templates');
+		$f->description = $this->_('When selection is present, track events only for the templates selected here.');
+		$f->notes = $this->_('If none selected, then all templates (other than the “skip templates”) are tracked.');
+		foreach($templates as $template) {
+			$f->addOption($template->id, $template->name);
+		}
+		$f->attr('value', $profiler->onlyTemplates);
+		$f->collapsed = Inputfield::collapsedYes;
+		$tab->add($f);
+
+		/** @var InputfieldCheckbox $f */
+		$f = $modules->get('InputfieldCheckbox');
+		$f->attr('name', '_clearAll');
+		$f->label = $this->_('Clear all recorded events');
+		$f->description = $this->_('This clears all events. If you only want to clear certain kinds of events, use the button at the bottom of each tab.');
+		$f->collapsed = Inputfield::collapsedYes;
+		$tab->add($f);
+
+		/** @var InputfieldSubmit $f */
+		if($this->wire('page')->process == $this) {
+			$f = $modules->get('InputfieldSubmit');
+			$f->attr('name', '_submit_save');
+			$f->showInHeader();
+			$f->addClass('submit_save pwpp-hidden-not-config');
+			$f->attr('value', $this->_('Save'));
+			$tab->add($f);
+		} else {
+			$tab->removeClass('WireTab');
+			$tab->icon = 'dashboard';
+			$tab->collapsed = Inputfield::collapsedYes;
+			$tab->label = $this->_('ProfilerPro Configuration');
+			$tab->description = $this->_('These configuration settings are also available on the ProfilerPro page.');
+		}
+
+		if($this->input->post('_submit_save')) {
+			$this->saveConfigTab($tab);
+		}
+
+		return $tab;
+	}
+
+	/**
+	 * Save the config when save button is pressed on config tab
+	 *
+	 * @param InputfieldWrapper $tab
+	 *
+	 */
+	protected function saveConfigTab(InputfieldWrapper $tab) {
+		$tab->processInput($this->input->post);
+		/** @var ProfilerPro $profiler */
+		$profiler = $this->wire('profiler');
+		$data = $this->modules->getConfig($profiler);
+		$summary = array();
+		foreach($tab->getAll() as $f) {
+			$name = $f->attr('name');
+			if(strpos($name, '_') === 0) continue;
+			$value = $f->attr('value');
+			if($name == 'minTime') $value = (float) $value;
+			if(!isset($data[$name]) || $value != $data[$name]) $summary[$name] = $name;
+			$data[$name] = $value;
+		}
+		$this->modules->saveConfig($profiler, $data);
+		if(count($summary)) {
+			$this->session->message($this->_('Updated config:') . ' ' . implode(', ', $summary));
+		}
+		if($this->input->post('_clearAll')) {
+			$profiler->clear();
+		}
+		$this->session->redirect('./');
+	}
+	
+	/**
+	 * Product a time string for display in profiler events table
+	 * 
+	 * @param float $time
+	 * @return string
+	 * 
+	 */
+	protected function timeStr($time) {
+		
+		/** @var ProfilerPro $profiler */
+		$profiler = $this->wire('profiler');
+		
+		$minTime = $profiler->minTime();
+		$precision = $profiler->precision;
+		$units = '';
+		
+		if($profiler->get('timeFormat') == ProfilerPro::timeFormatS) {
+			$less =
+				"<span class='table-sort-value'>0.0</span>" .
+				"<span class='pwpp-zero'>0." . str_pad('', $precision, '0') . '</span>';
+			$len = $precision + 2;
+			$time = (float) $time;
+			if($time < $minTime) {
+				$str = $less;
+			} else {
+				$str = str_pad(round($time, $precision), $len, '0'); 
+				$units = 's';
+			}
+			
+		} else {
+			// milliseconds
+			$less =
+				"<span class='table-sort-value'>0</span>" .
+				"<span class='pwpp-zero'>0</span>";
+			if($time < $minTime) {
+				$str = $less;
+			} else {
+				$str = round($time * 1000);
+				$units = 'ms';
+			}
+		}
+
+		if(!strlen(str_replace('0', '', $str))) {
+			$str = $less;
+		} else if($units) {
+			$str .= "<small class='detail pwpp-units pwpp-units-$units'>$units</small>";
+		}
+		
+		return $str;
+	}
+
+	/**
+	 * Render a relative time string
+	 * 
+	 * @param int $time
+	 * @return string
+	 * 
+	 */	
+	protected function relTime($time) {
+		$words = ltrim($this->wire('datetime')->relativeTimeStr($time, true), '-');
+		return str_replace(' ago', '', $words); 
+	}
+
+}
+
+	

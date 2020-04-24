@@ -1,0 +1,662 @@
+#cartPopupHolder, #loadholdblanket, #uploadBlanket {
+	display: none;
+}
+#cartPopupHolder, #loadholdblanket, #uploadBlanket {
+	display: none;
+}
+#cartPopupHolder {
+	width: 100%;
+	height: 100%;
+	text-align: center;
+	background: rgba(0,0,0,0.5);
+	position: absolute;
+	z-index: 99;
+}
+#cartPopup {
+	width: 200px;
+	border: 4px solid #000;
+	margin: 50px auto;
+	background: #FFF;
+	text-transform: uppercase;
+	font-weight: bold;
+	padding: 20px;
+}
+#loadholdblanket {
+	background:rgba(0,0,0,0.6);
+	z-index: 9999;
+	display: none;
+	height: 100%;
+	width: 100%;
+	position: fixed;
+}
+#loadhold {
+	text-align: center;
+	margin: 50px auto;
+	padding: 40px 50px;
+	background: #FFF;
+	border-radius: 10px;
+	width: 50px;
+}
+/*** Forms settings ***/
+#uploadBlanket {
+	width: 100%;
+	height: 100%;
+	background: rgba(0,0,0,0.6);
+	z-index: 9999;
+	position: fixed;
+	display: none;
+}
+#upload_div {
+	margin: 100px auto;
+	width: 400px;
+	overflow: hidden;
+	background: #FFF;
+	padding: 50px;
+	border: 10px solid #e3e3e3;
+}
+#upload_div h3 {
+	font-size: 25px;
+	font-weight: 700;
+	padding-bottom: 20px;
+}
+#uploadFile {
+	padding: 20px;
+	background: #f6f6f6;
+	width: calc(100% - 40px);
+}
+#uploadsubmit, #uploadcancel {
+	background: #25b58c;
+	color: #FFF;
+	padding: 16px 30px;
+	cursor: pointer;
+	border: none;
+	margin-right: 10px;
+	text-transform: uppercase;
+	font-weight: 600;
+	font-size: 14px;
+	letter-spacing: 1px;
+}
+#uploadcancel {
+	background: #cad0d7;
+}
+#upload_div, #upload_target {
+	display: none;
+}
+em {
+	color: inherit;
+}
+/** End Form Upload div etc **/
+#mobilehamburger {
+	display: none;
+}
+.uk-navbar {
+	height:80px;
+	position: fixed; /* set to relative if not using sticky header */
+	z-index: 99;
+	width: 100%;
+}
+.header-sticky-padding {
+	height: 80px; /* set height to 0 if not using sticky header */
+	position: relative;
+}
+#logo {
+	max-height: 30px;
+	padding-left: 0;
+}
+#logo img {
+	max-height: 100%;
+}
+p, h1, h2, h3 { /** override UIkit **/
+	margin-bottom: 0;
+}
+*+address, *+dl, *+fieldset, *+figure, *+ol, *+p, *+pre, *+ul {
+	/** override UIKit **/
+	margin-top: 0;
+}
+/** standard elements WC **/
+.full-width {
+	width: 100%;
+}
+.centreme {
+	width: 100%; /* set to either percent or max px */
+	max-width: 1920px;
+	margin: 0 auto;
+}
+.centremeinner, .uk-navbar-left {
+	padding-left: 150px; /* or whatever this needs to be when not sitting inside a grid */
+
+}
+.centremeinner, .uk-navbar-right {
+	padding-right: 150px; /* or whatever this needs to be when not sitting inside a grid - should be same as above */
+}
+.wc-padding-vertical, .wc-padding-vertical-top {
+	padding-top: 100px;
+}
+.wc-padding-vertical, .wc-padding-vertical-bottom {
+	padding-bottom: 100px;
+}
+.inside-left-half, .inside-right-half {
+	width: calc(100% - 150px); /* centremeinner paddingleft */
+	max-width: calc(1920px - 150px); /* centreme maxwidth */
+	float: right;
+	height: 100%;
+	display: flex;
+	align-items: center;
+}
+.inside-right-half {
+	float: left;
+}
+.inside-left-content, .inside-right-content {
+
+}
+.inside-left-content {
+	padding-right: 50px;
+}
+.inside-right-content {
+	padding-left: 50px;
+}
+.column-image-hold { /* used when <img> is child of div */
+	min-height: 400px; /* or whatever you want this to be */
+	height: 400px;
+}
+.column-image-hold img {
+	object-fit: cover;
+	height: 100%;
+	width: 100%;
+}
+.column-image-background { /* used when image is background-image (better for auto sizing in columns) */
+	background-size: cover;
+	background-position: center;
+}
+.boldme {
+	font-weight: bold;
+}
+.text-white, .text-white h1, .text-white h2,
+.text-white h3, .text-white p {
+	color: #FFF;
+}
+.bg-grey {
+	background: #CCC;
+}
+.bg-white {
+	background-color: #FFF;
+}
+.bg-darkgrey {
+	background: #888;
+}
+.bg-grey-rgba {
+	background: rgba(0,0,0,0.5);
+	width: 100%;
+	height: 100%;
+	position: absolute;
+	z-index: 1;
+}
+.zind2 {
+	z-index: 2;
+}
+.col-has-background-image {
+	background-size: cover;
+}
+.uk-link, a, .uk-link:hover, a:hover {
+	color: inherit;
+	text-decoration: none;
+}
+/** end standard elements WC **/
+
+/** home and generic hero elements **/
+.home-hero, .generic-hero {
+	height: 500px;
+}
+.hero-image {
+	height: 100%;
+	width: 100%;
+	object-fit: cover;
+}
+.hero-image-hold {
+	width: 100%;
+}
+.hero-image-hold p {
+	color: #fff;
+}
+.hero-overlay {
+	background: rgba(0,0,0,0.5);
+}
+.home-hero-overlay-content {
+	position: relative;
+	z-index: 5;
+	color: #FFF;
+	text-align: center;
+}
+.generic-hero-overlay-content {
+	position: relative;
+	z-index: 5;
+	color: #FFF;
+	text-align: center;
+}
+.home-hero-content {
+	font-size: 14px;
+	text-align: center;
+	margin: 0 auto;
+	width: 60%;
+}
+.home-hero-content h1, .home-hero-content h2, .home-hero-content h3, .home-hero-content p {
+	color: #FFF;
+}
+.generic-hero-content {
+	font-size: 50px;
+	text-align: center;
+	margin: 0 auto;
+	width: 60%;
+}
+.hero-button {
+	color: #FFF;
+	text-transform: uppercase;
+	font-size: 16px;
+	border: 2px solid #FFF;
+	transition: all 0.3s ease-in-out;
+	padding: 10px 25px;
+	display: inline-block;
+	margin-top: 20px;
+}
+.hero-button:hover {
+	background-color: #444;
+}
+/** end home and generic hero elements **/
+/** menu bits **/
+#desktop-menu li a {
+	border-bottom: 4px solid transparent;
+}
+#desktop-menu li a.menuActiveState {
+	border-bottom: 4px solid #888;
+}
+/** Menu Search **/
+#searchTopHolder {
+	padding: 42px 0 50px 0;
+	width: auto;
+	display: inline-block;
+	float: right;
+	height: 50px;
+}
+#searchfa {
+	cursor: pointer;
+	font-size: 30px;
+}
+#searchboxwrapper {
+	position: absolute;
+	text-align: center;
+	width: 1000px;
+	display: none;
+}
+#mobilesearchholder {
+	padding: 10px 0px 11px 0px;
+	border-radius: 5px;
+	display: none;
+}
+#searchbox, #mobile-searchbox {
+	width: 50px;
+	padding: 10px 15px 13px 15px;
+	font-size: 14px;
+	border: none;
+}
+#mobile-searchbox {
+	width: calc(100% - 30px);
+	margin-left: 0px;
+}
+#searchbox, #searchbtn {
+	display: none;
+}
+#searchbtn, #mobile-searchbtn {
+	cursor: pointer;
+	border: none;
+	text-transform: uppercase;
+	background: #3CBCB0;
+	color: #FFF;
+	font-size: 11px;
+	letter-spacing: 0.1em;
+	font-weight: 500;
+	padding: 10px 20px 11px;
+	margin-right: 5px;
+	-webkit-transition: all 0.2s ease-in-out;
+	-moz-transition: all 0.2s ease-in-out;
+	transition: all 0.2s ease-in-out;
+	border-radius: 3px;
+	height: 40px;
+}
+#mobile-searchbtn {
+	margin-top: 15px;
+	width: 100%;
+}
+#searchbtn:hover {
+	background: #00a192;
+}
+#mobile-searchbtn:hover {
+	background: #262626;
+}
+.inputlbl, .cartinplbl {
+	font-size: 12px;
+	padding-bottom: 5px;
+}
+.text-form-input {
+	display: block;
+	border: 2px solid #0F131A;
+	padding: 13px;
+	margin-bottom: 20px;
+}
+.select-form-input {
+	display: block;
+	border: 1px solid #e0e3e5;
+	padding: 22px 15px;
+	margin-bottom: 20px;
+	width: 100%;
+	font-size: 14px;
+	font-family: Montserrat;
+	font-weight: 300;
+	color: #132129;
+}
+.redborder, .form-input-parent .redborder {
+	border: 1px solid #FF0000;
+}
+.form-input-parent textarea { /** textarea form inputs **/
+	border: 1px solid #e0e3e5;
+	padding: 22px 15px;
+	height: 120px;
+	width: calc(100% - 32px);
+	font-size: 14px;
+	font-family: Montserrat;
+	font-weight: 300;
+	color: #132129;
+}
+/** cart page **/
+.cartitem {
+
+}
+.cartitemimg {
+
+}
+.cart-submit-hold {
+
+}
+#cartcontents {
+	color: #0F131A;
+	margin: 20px 0;
+}
+#cartsection h1 {
+	font-weight: bold;
+}
+#cartbottom {
+	padding-bottom: 50px;
+}
+#carttotalrow {
+	margin-top: 20px;
+	padding: 20px 0;
+	font-weight: bold;
+	border-top: 1px solid #ccc;
+	border-bottom: 1px solid #ccc;
+	color: #2D3A4B;
+}
+#cartname, #cartphone, #cartemail, #cartnotes {
+	width: calc(100% - 30px);
+	display: block;
+	border: 2px solid #0F131A;
+	padding: 13px;
+	margin-bottom: 20px;
+}
+#cartnotes {
+	height: 50px;
+}
+.cartnumhold {
+	display: inline;
+}
+.cartnumupdate {
+	display: inline;
+
+}
+.cartitemnum {
+	width: 30px;
+	text-align: center;
+	margin-right: 5px;
+}
+.cartitemprice {
+	margin-top: 5px;
+	font-weight: bold;
+	display: block;
+}
+.cartnumupdatebtn {
+	margin-right: 5px;
+	cursor: pointer;
+	text-transform: uppercase;
+	background: #142C42;
+	border: none;
+	color: #FFF;
+	font-size: 10px;
+	padding: 5px 10px;
+}
+.cartnumupdatebtn:hover {
+	background: #0a001f;
+}
+.cartnumremovebtn i:hover {
+	color: #F00;
+	cursor: pointer;
+}
+#cartbottom .text-form-input {
+	width: calc(90% - 10px);
+}
+#carttotalrow {
+	margin-top: 20px;
+	padding: 20px;
+	font-weight: bold;
+	border-top: 1px solid #888;
+	border-bottom: 1px solid #888;
+}
+/** end cart page **/
+/*.contactmap iframe { !* to stop maps from zooming when scrolling past set to none *!*/
+	/*pointer-events: none;*/
+	/*pointer-events: auto;*/
+/*}*/
+
+/* Person card tiles */
+.person-card-image-top-background {
+	background: #eef0f1;
+}
+.person-image-hold {
+	text-align:center;
+	position: relative;
+}
+.person-card {
+	background: #FFF;
+	height: 100%;
+	text-align: center;
+	color: #132129;
+}
+.person-name {
+	font-weight: 700;
+	font-size: 18px;
+	margin-bottom: 10px;
+	line-height: 1.3em;
+}
+.person-jobtitle {
+	font-size: 15px;
+	font-weight: 300;
+	margin-top: 0;
+}
+.person-card-image-top-background {
+	height: 50%;
+	position: absolute;
+	width: 100%;
+}
+.person-tile-image {
+	position: relative;
+	background: #132129;
+	filter: grayscale(100%);
+	opacity: 1;
+}
+.person-tile-image-tint {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	background: rgba(0,94,158, 0.2);
+	transition: all .3s linear;
+	width: 200px;
+	margin: 0 auto;
+}
+.person-card-hold a:hover .person-tile-image {
+	filter: grayscale(0%);
+}
+.person-card-hold a:hover .person-tile-image-tint  {
+	background: none;
+}
+.person-card-hold a:after {
+	background: #fff;
+	content: "";
+	display: block;
+	height: 10px;
+}
+.person-card-hold a:hover:after {
+	background: #fdcc01;
+}
+.personProfile h1 {
+	font-size: 26px;
+	color: #003d5c;
+	font-weight: 400;
+}
+.personProfile h2 {
+	color: #0091c4;
+	text-transform: uppercase;
+	font-size: 15px;
+	letter-spacing: 6px;
+	margin-top: 0;
+}
+.personProfile p {
+	font-weight: 300;
+	line-height: 1.8em;
+	letter-spacing: 0.02em;
+}
+/* End Person card tiles */
+/** testimonial tiles **/
+.home-testimonial-tile, .testimonial-tile {
+	margin: 100px 0;
+	font-size: 14px;
+	font-weight: 300;
+	filter: drop-shadow( 0px 0px 7px rgba(0, 0, 0, 0.15));
+}
+.testimonial-tile {
+	margin: 0;
+}
+.home-testimonial-tile p {
+	color: #142129;
+	display: inline;
+}
+.home-testimonial-tile-inside {
+	width: 70%;
+	margin-left: 5%;
+	margin-right: 5%;
+	padding: 10% 10%;
+	background: #FFF;
+	/*border: 1px solid #CCC;*/
+	/*box-shadow: 0px 1px 30px 2px rgba(0,0,0,0.15);*/
+}
+.arrow-white {
+	height: 30px;
+	margin-left: 60px;
+	margin-top: -1px;
+}
+.testimonial-name {
+	color: #24b570;
+	font-weight: 700;
+}
+/* end testimonials */
+
+
+@media screen and (max-width: 1199px) {
+	/** standard elements WC **/
+	.centremeinner, .uk-navbar-left {
+		padding-left: 70px; /* or whatever this needs to be when not sitting inside a grid */
+	}
+	.centremeinner, .uk-navbar-right {
+		padding-right: 70px; /* or whatever this needs to be when not sitting inside a grid */
+	}
+	.inside-left-half, .inside-right-half {
+		width: calc(100% - 70px); /* centremeinner paddingleft */
+	}
+	/** end standard elements WC **/
+}
+
+@media screen and (max-width: 769px) {
+	/** standard elements WC **/
+	.centremeinner, .uk-navbar-left {
+		padding-left: 50px; /* or whatever this needs to be when not sitting inside a grid */
+	}
+	.centremeinner {
+		padding-right: 50px; /* or whatever this needs to be when not sitting inside a grid */
+	}
+	.uk-navbar-right {
+		padding-right: 20px; /* hamburger - push to right */
+	}
+	.home-hero, .generic-hero {
+		height: 400px;
+	}
+	.inside-left-half, .inside-right-half {
+		width: calc(100% - 50px); /* centremeinner paddingleft */
+	}
+	/** end standard elements WC **/
+	.generic-hero .hero-image {
+		min-height: 340px;
+	}
+	.generic-hero-content {
+		font-size: 40px;
+	}
+	#mobilehamburger {
+		display: flex;
+	}
+	#mobilesearchholder {
+		display: block;
+	}
+	#searchboxwrapper, #searchTopHolder {
+		display: none;
+	}
+	.uk-navbar-nav {
+		display: none;
+	}
+	.column-image-background {
+		height: 300px;
+	}
+}
+
+@media screen and (max-width: 640px) {
+	/** standard elements WC **/
+	.centremeinner, .uk-navbar-left {
+		padding-left: 30px; /* or whatever this needs to be when not sitting inside a grid */
+	}
+	.centremeinner {
+		padding-right: 30px; /* or whatever this needs to be when not sitting inside a grid */
+	}
+	.inside-left-half, .inside-right-half {
+		width: calc(100% - 30px); /* centremeinner paddingleft */
+	}
+	.uk-navbar-right {
+		padding-right: 0; /* push closer to right - mobile hamburger */
+	}
+	.wc-padding-vertical, .wc-padding-vertical-top {
+		padding-top: 35px;
+	}
+	.wc-padding-vertical, .wc-padding-vertical-bottom {
+		padding-bottom: 35px;
+	}
+	.home-hero, .generic-hero {
+		height: 340px;
+	}
+	/** end standard elements WC **/
+	.no-content {
+		height: 150px;
+	}
+	.column-image-background {
+		height: 300px;
+	}
+	.inside-right-content {
+		padding-left: 30px;
+	}
+}

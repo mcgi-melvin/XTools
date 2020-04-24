@@ -1,0 +1,830 @@
+<?php namespace ProcessWire;
+
+/**
+ * ProcessWire ProFields: Fieldtype fieldset group
+ * 
+ * THIS IS A COMMERCIAL MODULE - DO NOT DISTRIBUTE
+ * 
+ * ProcessWire 3.x, Copyright 2017 by Ryan Cramer
+ * https://processwire.com/api/modules/profields/
+ * https://processwire.com
+ * 
+ * @property bool $allowAddCollide Allow add field to fieldset even if already in template? Causes field to move into fieldset. (default=false)
+ *
+ * @todo Possibly removal of fieldset from template should also remove the fields within it (or ask user)
+ *
+ */
+
+class FieldtypeFieldsetGroup extends FieldtypeFieldsetOpen {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Fieldset (Group)',
+			'version' => 2,
+			'summary' => 'Fieldset that manages its own group of fields. Manipulate fields within and it adjusts all instances.',
+			'requires' => 'ProcessWire>=3.0.74'
+			);
+	}
+
+	/**
+	 * Prefix used by templates created by this Fieldtype
+	 * 
+	 */
+	const templateNamePrefix = 'fieldset_field_';
+
+	/**
+	 * Cache of main fieldset templates for getFieldsetTemplate() method, indexed by field ID
+	 * 
+	 * @var array
+	 * 
+	 */
+	protected $fieldsetTemplates = array();
+	
+	public function __construct() {
+		parent::__construct();
+		
+		// allow adding field to fieldset even if field already in template (causes field to move into template)
+		$this->set('allowAddCollide', true); 
+	}
+
+	/**
+	 * Add hooks to ProcessField or ProcessTemplate
+	 * 
+	 */
+	protected function addProcessHooks() {
+		parent::addProcessHooks();
+		$this->addHookAfter('ProcessField::fieldChangedContext', $this, 'hookFieldChangedContext');
+	}
+	
+	/**
+	 * Get a Template to manage fields for this fieldseti, optionally creating it if it does not exist
+	 * 
+	 * @param Field $field
+	 * @param bool $createIfNotExists Create the template if it does not already exist? (default=false)
+	 * @return Template|null Returns Template, or null if not found (and not allowed to create it).
+	 * @throws WireException
+	 * 
+	 */
+	public function getFieldsetTemplate(Field $field, $createIfNotExists = false) {
+		
+		if(isset($this->fieldsetTemplates[$field->id])) {
+			return $this->fieldsetTemplates[$field->id];
+		}
+	
+		$templateName = $this->getFieldsetTemplateName($field); 
+		$template = $this->wire('templates')->get($templateName); 
+		
+		if(!$template) {
+			if(!$createIfNotExists) return null;
+			$template = $this->createFieldsetTemplate($field); 
+		}
+		
+		$this->updateFieldsetTemplate($field, $template); 
+		$this->fieldsetTemplates[$field->id] = $template;
+	
+		return $template;
+	}
+
+	/**
+	 * Get the name of the template used by the given fieldset field
+	 * 
+	 * @param Field $field
+	 * @return string
+	 * 
+	 */
+	protected function getFieldsetTemplateName(Field $field) {
+		$templateName = $field->get('fieldsetTemplate');
+		if(!$templateName) {
+			$templateName = self::templateNamePrefix . $field->id;
+			$field->set('fieldsetTemplate', $templateName); 
+		}
+		return $templateName;
+	}
+
+	/**
+	 * Create template for given fieldset field and return it
+	 * 
+	 * @param Field $field
+	 * @return Template
+	 * @throws WireException
+	 * 
+	 */
+	protected function createFieldsetTemplate(Field $field) {
+		
+		$templateName = $this->getFieldsetTemplateName($field); 
+		
+		// create the fieldgroup
+		$fieldgroup = $this->wire(new Fieldgroup());
+		$fieldgroup->name = $templateName;
+		$fieldgroup->save();
+		if(!$fieldgroup->id) throw new WireException("Unable to create fieldgroup: $templateName");
+
+		// create the template
+		$template = $this->wire(new Template());
+		$template->name = $templateName;
+		$template->fieldgroup = $fieldgroup;
+		$template->flags = Template::flagSystem;
+		$template->noChildren = 1;
+		$template->noParents = 1; // prevents users from creating pages with this template, but not us
+		$template->noGlobal = 1;
+		$template->save();
+		if(!$template->id) throw new WireException("Unable to create repeater template: $templateName");
+
+		// pair it to this field
+		$field->set('fieldsetTemplate', $templateName);
+		$field->save();
+
+		$this->message("Created template: $templateName", Notice::debug); 
+		
+		return $template;
+	}
+
+	/**
+	 * Update the main fieldset template to make it consistent with configured fields
+	 * 
+	 * @param Field $field
+	 * @param Template $template
+	 * 
+	 */
+	protected function updateFieldsetTemplate(Field $field, Template $template) {
+		
+		/** @var Fieldgroup $fieldgroup */
+		$fieldgroup = $template->fieldgroup;
+		$fieldsetFields = $field->get('fieldsetFields');
+		if(!is_array($fieldsetFields)) return;
+
+		$order1 = '';
+		$order2 = '';
+		foreach($fieldgroup as $f) $order1 .= ",$f->id,";
+		foreach($fieldsetFields as $id) $order2 .= ",$id,";
+	
+		if($order1 == $order2) return; // no changes
+		
+		foreach($fieldsetFields as $fieldID) {
+			$f = $this->wire('fields')->get($fieldID);
+			if(!$f) continue;
+			if($fieldgroup->hasField($f)) {
+				$f = $fieldgroup->getFieldContext($f);
+				$fieldgroup->add($f);
+			} else {
+				$fieldgroup->add($f);
+			}
+		}
+		
+		foreach($fieldgroup as $f) {
+			if(!in_array($f->id, $fieldsetFields)) {
+				$fieldgroup->remove($f);
+			}
+		}
+		
+		$fieldgroup->save();
+	}
+
+	/**
+	 * Check that all templates using this Fieldset are up-to-date and optional update as needed
+	 * 
+	 * @param Field $field
+	 * @param bool $updateNow When true, sort changes and field additions will be applied where needed (default=false). 
+	 * @param bool|array $deleteNow When true, delete changes will be applied where needed, or specify array of
+	 *   field IDs to delete (default=false). 
+	 * @return array Results indexed by template name of (see getTemplateDifferences() return value)
+	 * 
+	 */
+	public function checkTemplatesUsingFieldset(Field $field, $updateNow = false, $deleteNow = false) {
+
+		$results = array();
+		if(!$field->type instanceof FieldtypeFieldsetGroup) return $results;
+		$templates = $this->getTemplatesUsingField($field);
+		
+		$options = array(
+			'addAll' => $updateNow,
+			'reorderAll' => $updateNow, 
+			'deleteAll' => $deleteNow === true, 
+		);
+	
+		if(is_array($deleteNow)) $options['deleteIDs'] = $deleteNow; 
+		
+		foreach($templates as $template) {
+			$results[$template->name] = $this->getTemplateDifferences($field, $template, $options);
+		}
+	
+		return $results;
+	}
+
+	/**
+	 * Get array of differences between main template and fieldset in template, optionally applying actions to fix
+	 * 
+	 * @param Field $field Fieldset field
+	 * @param Template $template Template to check
+	 * @param array $options Options to perform actions: 
+	 *  - `addAll` (bool): Add all missing fields? (default=false).
+	 *  - `addIDs` (array): Add only missing fields having these IDs (default=[]).
+	 *  - `deleteAll` (bool): Delete all extra fields that are not supposed to be in fieldset? (default=false).
+	 *  - `deleteIDs` (array): Delete only fields from fieldset having these IDs (default=[]). 
+	 *  - `reorderAll` (bool): Correct order of fields within the fieldset? (default=false).
+	 *  - `updateAll` (bool): Update settings (contexts) for all fields to match main template? (default=false).
+	 * @return array Returns associative array of the following:
+	 *  - `missingFields` (array): Fields intended to be present that are not.
+	 *  - `outFields` (array): Fields present in template, but outside of the fieldset.
+	 *  - `extraFields` (array): Fields present in the fieldset that are not supposed to be there.
+	 *  - `reorderFields` (array): Fields that are in the wrong order within the fieldset. 
+	 *  - `updateFields` (array): Context missing settings where key is field name and value is array of ['setting' => 'value'].
+	 * 
+	 */
+	public function getTemplateDifferences(Field $field, Template $template, array $options = array()) {
+		
+		$defaults = array(
+			'addAll' => false, // add all missing fields
+			'addIDs' => array(), // add only fields having these IDs
+			'deleteAll' => false, // delete all extra fields
+			'deleteIDs' => array(), // delete only fields having these IDs
+			'reorderAll' => false, // correct field sort order
+			'updateAll' => false, // update field->template contexts
+		);
+		
+		$results = array(
+			'missingFields' => array(), // fields intended to be present that are not
+			'outFields' => array(), // fields present in template, but not in the fieldset
+			'extraFields' => array(), // fields present that are not configured to be in the fieldset
+			'reorderFields' => array(), // fields that are in the wrong order
+			'updateFields' => array(), // context differences where key is field name and value is array of differences
+		);
+	
+		$options = array_merge($defaults, $options);
+		$mainTemplate = $this->getFieldsetTemplate($field); 
+		$intendedFields = $this->getFieldsetFields($field); 	
+		$actualFields = $this->getFieldsetFieldsInTemplate($field, $template); 
+		$actualOrderStr = ",$field->name," . implode(',', array_keys($actualFields)) . ',';
+		$fieldgroup = $template->fieldgroup;
+		$numChanges = 0;
+		$lastField = $field;
+
+		// find fields not yet present on fieldset but specified to be, and also check order
+		foreach($intendedFields as $fieldName => $field) {
+			if(!isset($actualFields[$fieldName])) {
+				if($template->fieldgroup->hasField($field)) {
+					// field in template but outside of the fieldset
+					$results['outFields'][$fieldName] = $field;
+					if($options['reorderAll']) {
+						// move into fieldset
+						$fieldgroup->insertAfter($field, $lastField); 
+						$numChanges++;
+					} else {
+						// continue loop now to avoid setting $lastField since not in fieldset
+						continue;
+					}
+				} else {
+					// field is missing from template and fieldset
+					$results['missingFields'][$fieldName] = $field;
+					if($options['addAll'] || in_array($field->id, $options['addIDs'])) {
+						$fieldgroup->insertAfter($field, $lastField);
+						$numChanges++;
+					}
+				}
+			} else if(strpos($actualOrderStr, ",$lastField->name,$fieldName,") === false) {
+				// out of order
+				$results['reorderFields'][$fieldName] = $field;
+				if($options['reorderAll']) {
+					$fieldgroup->insertAfter($field, $lastField); 
+					$numChanges++;
+				}	
+			}
+		
+			$context = $template->fieldgroup->getFieldContextArray($field->id); 
+			$mainContext = $mainTemplate->fieldgroup->getFieldContextArray($field->id); 
+			$diffContext = array_diff_assoc($mainContext, $context); 
+			if(count($diffContext)) {
+				$results['updateFields'] = $diffContext; 
+				if($options['updateAll']) {
+					$context = array_merge($context, $diffContext); 
+					$template->fieldgroup->setFieldContextArray($field->id, $context); 
+					$template->fieldgroup->saveContext();
+				}
+			}
+			
+			$lastField = $field;
+		}
+	
+		// find fields present in fieldset that aren't specified to be in it
+		foreach($actualFields as $fieldName => $field) {
+			if(!isset($intendedFields[$fieldName])) {
+				$results['extraFields'][$fieldName] = $field;
+				if($options['deleteAll'] || in_array($field->id, $options['deleteIDs'])) {
+					$fieldgroup->remove($field); 
+					$numChanges++;
+				}
+			}
+		}
+		
+		if($numChanges) $fieldgroup->save();
+		
+		return $results;
+	}
+
+	/**
+	 * Get all the fields configured for this Fieldset (and in the correct order)
+	 * 
+	 * Returns an array based on the fields configured with this field. It is not pulled from any template. 
+	 * 
+	 * @param Field $field Fieldset field
+	 * @param Template|null Optional template for context
+	 * @return array of Field objects that are in the Fieldset, indexed by field name
+	 * 
+	 */
+	public function getFieldsetFields(Field $field, Template $template = null) {
+	
+		/** @var Fields $fields */
+		$fields = $this->wire('fields');
+		$fieldIDs = $field->get('fieldsetFields'); 
+		$fieldsetFields = array();
+		
+		if(!is_array($fieldIDs)) return $fieldsetFields;
+		
+		foreach($fieldIDs as $fieldID) {
+			$field = null;
+			if($template && $template->fieldgroup->hasField($fieldID)) {
+				$field = $template->fieldgroup->getFieldContext($fieldID);
+			} else {
+				$field = $fields->get((int) $fieldID); 
+			}
+			if($field) {
+				$fieldsetFields[$field->name] = $field;
+			}
+		}
+	
+		return $fieldsetFields;
+	}
+
+	/**
+	 * Get the fields that are actually in the fieldset for given template
+	 * 
+	 * May be different from what is configured, so this method can be compared with the 
+	 * return value of `getFieldsetFields()` to identify differences. 
+	 * 
+	 * @param Field $field The fieldset field
+	 * @param Template $template The template to look at
+	 * @param Field|null $hasField Optionally specify a field just to check if it is present (changes return value to bool).
+	 * @return array|bool Array of Field objects indexed by field name, or bool if using $hasField argument. 
+	 * 
+	 */
+	public function getFieldsetFieldsInTemplate(Field $field, Template $template, Field $hasField = null) {
+	
+		$fieldsetFields = array();
+		$fieldgroup = $template->fieldgroup;
+		$closer = $this->getFieldsetCloseField($field);
+		$in = false;
+
+		foreach($fieldgroup as $f) {
+			if($f->id == $field->id) {
+				// start checking fields after this
+				$in = true;
+			} else if($in && $closer && $f->id == $closer->id) {
+				// end of fieldset, no more to check
+				break;
+			} else if($in && $hasField && $hasField->id == $f->id) {
+				// has field mode, checking only if field is present in fieldset
+				$fieldsetFields[] = $f;
+				break;
+			} else if($in) {
+				// field should be added to the list
+				if($fieldgroup->hasFieldContext($f)) $f = $fieldgroup->getFieldContext($f);
+				$fieldsetFields[$f->name] = $f;
+			}
+		}
+		
+		return $hasField ? count($fieldsetFields) > 0 : $fieldsetFields;
+	}
+
+	/**
+	 * Get array of all templates using given $field
+	 * 
+	 * @param Field $field
+	 * @return array of Template objects indexed by template name
+	 * 
+	 */
+	public function getTemplatesUsingField(Field $field) {
+		$templates = array();
+		foreach($this->wire('templates') as $template) {
+			if($template->fieldgroup->hasField($field)) $templates[$template->name] = $template;
+		}
+		return $templates;
+	}
+
+	/**
+	 * Get instanceof FieldsetGroupConfig
+	 * 
+	 * @return FieldsetGroupConfig
+	 * 
+	 */
+	public function getConfigHelper() {
+		static $configHelper = null;
+		if(is_null($configHelper)) {
+			require_once(dirname(__FILE__) . '/FieldsetGroupConfig.php');
+			$configHelper = new FieldsetGroupConfig($this);
+			$this->wire($configHelper);
+		}
+		return $configHelper;
+	}
+
+	
+	/*** FIELDTYPE INTERFACE METHOD IMPLEMENTATIONS **********************************************************/
+
+	/**
+	 * Field configuration
+	 * 
+	 * @param Field $field
+	 * @return InputfieldWrapper
+	 * 
+	 */
+	public function ___getConfigInputfields(Field $field) {
+		$inputfields = parent::___getConfigInputfields($field);
+		$configHelper = $this->getConfigHelper();
+		$inputfields = $configHelper->getConfigInputfields($field, $inputfields);
+		return $inputfields;
+	}
+	
+	/**
+	 * Sanitize value (fieldsets have no value)
+	 * 
+	 * @param Page $page
+	 * @param Field $field
+	 * @param int|object|WireArray|string $value
+	 * @return null
+	 * 
+	 */
+	public function sanitizeValue(Page $page, Field $field, $value) {
+		return null;
+	}
+
+	/**
+	 * Get the Inputfield module for this Fieldtype
+	 * 
+	 * @param Page $page
+	 * @param Field $field
+	 * @return Inputfield
+	 * 
+	 */
+	public function getInputfield(Page $page, Field $field) {
+		if($field->get('useTabs')) {
+			$ft = $this->wire('modules')->get('FieldtypeFieldsetTabOpen');
+			$inputfield = $ft->getInputfield($page, $field); 
+		} else {
+			$inputfield = parent::getInputfield($page, $field); 
+		}
+		$this->wire($inputfield); 
+		$inputfield->addClass($this->className());
+		return $inputfield;
+	}
+
+	/**
+	 * Get compatible Fieldtypes
+	 * 
+	 * @param Field $field
+	 * @return Fieldtypes
+	 * 
+	 */
+	public function ___getCompatibleFieldtypes(Field $field) {
+		$fieldtypes = $this->wire(new Fieldtypes());
+		foreach($this->wire('fieldtypes') as $fieldtype) {
+			if($fieldtype instanceof FieldtypeFieldsetGroup) $fieldtypes->add($fieldtype); 
+		}
+		return $fieldtypes; 
+	}
+
+	/**
+	 * Delete the given field, which implies: drop the table used by the field.
+	 *
+	 * This should only be called by the `Fields` class since `fieldgroups_fields` lookup entries must be
+	 * deleted before this method is called.
+	 *
+	 * #pw-group-deleting
+	 *
+	 * @param Field $field Field object
+	 * @return bool True on success, false on DB delete failure.
+	 *
+	 */
+	public function ___deleteField(Field $field) {
+		
+		$template = $this->getFieldsetTemplate($field); 
+		if(!$template) return parent::___deleteField($field); 
+		$fieldgroup = $template->fieldgroup;
+		
+		if($fieldgroup && $fieldgroup->count()) {
+			foreach($fieldgroup as $f) {
+				$fieldgroup->remove($f); 
+			}
+			$fieldgroup->save();
+		}
+		
+		$templateName = $template->name;
+		
+		if($template->flags & Template::flagSystem) {
+			// remove system flag from the template
+			$template->flags = Template::flagSystemOverride;
+			$template->flags = 0;
+		}
+
+		// delete the template
+		$this->wire('templates')->delete($template);
+
+		// delete the fieldgroup
+		if($fieldgroup) $this->wire('fieldgroups')->delete($fieldgroup);
+
+		$this->message("Deleted fieldgroup template $templateName", Notice::debug);
+		
+		return parent::___deleteField($field); 
+	}
+
+	/**
+	 * Delete the given Field from the given Page.
+	 *
+	 * Must delete entries from field's database table that belong to the Page.
+	 *
+	 * #pw-group-deleting
+	 *
+	 * @param Page $page
+	 * @param Field $field Field object
+	 * @return bool True on success, false on DB delete failure.
+	 * @throws WireException
+	 *
+	 */
+	public function ___deletePageField(Page $page, Field $field) {
+		
+		$result = parent::___deletePageField($page, $field); 
+		if(!$result) return false;
+		
+		$template = $this->getFieldsetTemplate($field); 
+		if(!$template) return true;
+		$numErrors = 0;
+		
+		foreach($template->fieldgroup as $f) {
+			if(!$f->type->deletePageField($page, $f)) $numErrors++;
+		}
+
+		return $numErrors ? false : true; 
+	}
+
+	/**
+	 * Empty out the DB table data for page field, but leave everything else in tact.
+	 *
+	 * In most cases this may be nearly identical to `Fieldtype::deletePageField()`, but would be different
+	 * for things like page references where we wouldn't want relational data deleted.
+	 *
+	 * #pw-group-deleting
+	 *
+	 * @param Page $page
+	 * @param Field $field Field object
+	 * @return bool True on success, false on DB delete failure.
+	 * @throws WireException
+	 *
+	 */
+	public function ___emptyPageField(Page $page, Field $field) {
+		parent::___emptyPageField($page, $field); 
+		$template = $this->getFieldsetTemplate($field);
+		if(!$template) return true; 
+		$numErrors = 0;
+		foreach($template->fieldgroup as $f) {
+			if(!$f->type->emptyPageField($page, $f)) $numErrors++;
+		}
+		return $numErrors ? false : true; 
+	}
+
+
+	/**
+	 * Move this field’s data from one page to another.
+	 *
+	 * #pw-group-saving
+	 *
+	 * @param Page $src Source Page
+	 * @param Page $dst Destination Page
+	 * @param Field $field
+	 * @return bool
+	 *
+	 */
+	public function ___replacePageField(Page $src, Page $dst, Field $field) {
+		parent::___replacePageField($src, $dst, $field);
+		$template = $this->getFieldsetTemplate($field);
+		if(!$template) return true;
+		$numErrors = 0;
+		foreach($template->fieldgroup as $f) {
+			if(!$f->type->replacePageField($src, $dst, $f)) $numErrors++;
+		}
+		return $numErrors ? false : true; 
+	}
+
+	/**
+	 * Delete the given Field from all pages using the given template, without loading those pages.
+	 *
+	 * ProcessWire will use this method rather than deletePageField in cases where the quantity of items
+	 * to delete is high (above 200 at time this was written). However, if your individual Fieldtype
+	 * defines it's own ___deletePageField method (separate from the one above) then it'll still get used.
+	 *
+	 * This was added so that mass deletions can happen without loading every page, which may not be feasible
+	 * when dealing with thousands of pages.
+	 *
+	 * #pw-group-deleting
+	 *
+	 * @param Template $template
+	 * @param Field $field
+	 * @return bool
+	 *
+	 */
+	public function ___deleteTemplateField(Template $template, Field $field) {
+		/** @var Fields $fields */
+		$fields = $this->wire('fields');
+		if(!$fields->deleteFieldDataByTemplate($field, $template)) return false;
+		$numErrors = 0;
+		$t = $this->getFieldsetTemplate($field); 
+		if($t) {
+			foreach($t->fieldgroup as $f) {
+				if(!$fields->deleteFieldDataByTemplate($f, $t)) $numErrors++;
+			}
+		}
+		return $numErrors ? false : true; 
+	}
+
+	
+	/*** HOOK HANDLERS *******************************************************************************/
+
+	/**
+	 * Hook to ProcessTemplate::fieldAdded 
+	 * 
+	 * Executed when field is added to a template via ProcessTemplate
+	 *
+	 * @param HookEvent $event
+	 *
+	 */
+	public function hookTemplateFieldAdded($event) {
+		
+		static $removeClosers = array();
+		
+		list($field, $template) = $event->arguments;
+		
+		if(!$this->isFieldset($field)) {
+			if(in_array($field->name, $removeClosers)) {
+				$template->fieldgroup->remove($field);
+				$event->return = false;
+			}
+			return;
+		}
+		
+		if(!$field->type instanceof FieldtypeFieldsetGroup) {
+			parent::hookTemplateFieldAdded($event);
+			return;
+		}
+		
+		$fieldsetFields = $this->getFieldsetFields($field);
+		$disallowedFieldNames = array();
+
+		foreach($fieldsetFields as $f) {
+			if($template->fieldgroup->hasField($f)) $disallowedFieldNames[] = $f->name;
+		}
+	
+		if(count($disallowedFieldNames)) {
+			if($this->allowAddCollide) {
+				$this->warning(
+					"Warning: fieldset '$field' in template '$template' already had field(s) which have now been moved into the fieldset: " .
+					implode(', ', $disallowedFieldNames)
+				);
+			} else {
+				$template->fieldgroup->remove($field);
+				$this->error(
+					"Cannot add fieldset '$field' because template '$template' already has field(s) from the fieldset: " .
+					implode(', ', $disallowedFieldNames)
+				);
+				$removeClosers[] = $field->name . self::fieldsetCloseIdentifier;
+				$event->return = false;
+				return;
+			}
+		}
+		
+		$closer = $this->getFieldsetCloseField($field);
+		if(!$closer) return;
+		
+		foreach($fieldsetFields as $f) {
+			$template->fieldgroup->add($f);
+		}
+		
+		$template->fieldgroup->add($closer);
+	}
+	
+	/**
+	 * Hook to ProcessField::allowFieldInTemplate
+	 *
+	 * @param HookEvent $event
+	 *
+	 */
+	public function hookAllowFieldInTemplate(HookEvent $event) {
+		parent::hookAllowFieldInTemplate($event); 
+		if(!$event->return) return;
+		/** @var Field $field */
+		$field = $event->arguments(0);
+		if(!$field->type instanceof FieldtypeFieldsetGroup) return;
+		/** @var Template $template */
+		$template = $event->arguments(1);
+		// if it already has the field then leave as-is
+		if($template->fieldgroup->hasField($field)) return;
+		// otherwise send to our other hook to decide
+		$this->hookTemplateFieldAdded($event);
+	}
+
+	/**
+	 * Hook to Processfield::fieldChangedContext
+	 * 
+	 * This method takes context changes made to main template for a given fieldset, and applies
+	 * them to all the other templates/fieldgroups that are using the field in the fieldset. 
+	 * This is assuming the context change was made interactively in the admin. 
+	 * 
+	 * @param HookEvent $event
+	 * 
+	 */
+	public function hookFieldChangedContext(HookEvent $event) {
+		
+		/** @var Field $field */
+		$field = $event->arguments(0);
+		
+		/** @var Fieldgroup $fieldgroup */
+		$fieldgroup = $event->arguments(1);
+		
+		/** @var array $changes */
+		$changes = $event->arguments(2);
+		
+		if(strpos($fieldgroup->name, self::templateNamePrefix) !== 0) return;
+		list(,$fieldsetID) = explode(self::templateNamePrefix, $fieldgroup->name); 
+		if(!ctype_digit($fieldsetID)) return;
+		$fieldset = $this->wire('fields')->get((int) $fieldsetID);
+		if(!$fieldset || !$fieldset->type instanceof FieldtypeFieldsetGroup) return;
+		
+		foreach($this->getTemplatesUsingField($fieldset) as $template) {
+			/** @var Template $template */
+			$context = $template->fieldgroup->getFieldContextArray($field->id); 
+			$context = array_merge($context, $changes); 
+			$template->fieldgroup->setFieldContextArray($field->id, $context); 
+			$template->fieldgroup->saveContext();
+		}	
+	}
+	
+	
+	/*** EXTRA UTILITY METHODS THAT ARE NOT CURRENTLY USED BY THIS MODULE ***************************************/
+	
+	/**
+	 * Is the given Field in the given Fieldset for given Template?
+	 *
+	 * @param Field $field
+	 * @param Field $fieldset
+	 * @param Template $template
+	 * @return bool
+	 *
+	 */
+	public function isFieldInFieldset(Field $field, Field $fieldset, Template $template) {
+		return $this->getFieldsetFieldsInTemplate($fieldset, $template, $field);
+	}
+	
+	/**
+	 * Add fields that are missing from the fieldset for template
+	 *
+	 * @param Field $fieldset
+	 * @param Template $template
+	 * @param array|bool $fieldIDs Specify TRUE to add ALL missing fields, or array of field IDs to add (default=true).
+	 *
+	 */
+	public function addMissingFields(Field $fieldset, Template $template, $fieldIDs = true) {
+		$this->getTemplateDifferences($fieldset, $template, array(
+			'addIDs' => is_array($fieldIDs) ? $fieldIDs : array(),
+			'addAll' => $fieldIDs === true,
+		));
+	}
+
+	/**
+	 * Delete extra fields from fieldset for template
+	 *
+	 * @param Field $fieldset
+	 * @param Template $template
+	 * @param array|bool $fieldIDs Specify TRUE to delete ALL extra fields, or specify field IDs to delete (required).
+	 *
+	 */
+	public function deleteExtraFields(Field $fieldset, Template $template, $fieldIDs) {
+		$this->getTemplateDifferences($fieldset, $template, array(
+			'deleteIDs' => is_array($fieldIDs) ? $fieldIDs : array(),
+			'deleteAll' => $fieldIDs === true,
+		));
+	}
+
+	/**
+	 * Correct the order of fields in fieldset for the given template
+	 *
+	 * @param Field $fieldset
+	 * @param Template $template
+	 *
+	 */
+	public function reorderFields(Field $fieldset, Template $template) {
+		$this->getTemplateDifferences($fieldset, $template, array(
+			'reorderAll' => true
+		));
+	}
+
+
+}
+
+
+

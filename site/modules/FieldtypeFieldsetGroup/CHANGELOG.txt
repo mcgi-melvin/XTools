@@ -1,0 +1,5 @@
+CHANGELOG
+ProcessWire Fieldtype Fieldset Group
+
+Version 1β: September 8, 2017
+- First beta release version
