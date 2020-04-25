@@ -17,6 +17,6 @@ include "./chunks/panel.php";
 include "./chunks/side-content.php";
 
 
-$tools->renderPageTable($page, "pt_content_repeat"); //render pagetable content blocks
+
 
 include_once "chunks/footer.php";

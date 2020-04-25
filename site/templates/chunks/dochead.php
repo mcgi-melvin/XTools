@@ -84,7 +84,7 @@ $(document).ready(function() {
 			$(this).addClass("menuActiveState");
 		}
 	});
-	
+
 	//use below if we need to change header colour on SECTION aggregate pages to match section colour
 	// var currname = "<?php echo $page->name ?>"; //for section aggregate pages
 	// $("#header, #header-sticky").addClass(currname+"_bg");
@@ -97,7 +97,7 @@ $(document).ready(function() {
 
 	//hover states for menu items (if changing background colour on hover)
 	// $("#desktop-menu li a").hover(function() {
-		// var thisbgclass = $(this).find(".menuTitle").attr("data-name"); 
+		// var thisbgclass = $(this).find(".menuTitle").attr("data-name");
 		// $(this).addClass(thisbgclass);
 		// $(this).find(".menuTitle").css("color","#FFFFFF");
 	// },
@@ -107,7 +107,7 @@ $(document).ready(function() {
 		// $(this).find(".menuTitle").css("color","#000000");
 	// }
 	// );
-	
+
 	displaySize();
 
 	//handle embedded vids in article body, change width to 100%
@@ -134,7 +134,7 @@ $(document).ready(function() {
 			doSearch();
 		}
 	});
-	
+
 });
 
 function nothing() { }
@@ -163,7 +163,7 @@ function viewport() {
 }
 
 function genericReq(targ,sendstring,callback) {
-	var xmlhttp = new XMLHttpRequest(); 
+	var xmlhttp = new XMLHttpRequest();
 	xmlhttp.open("POST",targ,true);
 	xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
 	xmlhttp.send(sendstring);
@@ -786,9 +786,14 @@ if($page->id == 1 and $pageInstance->showSchema === true) { //only show on the h
 				<ul class="uk-navbar-nav" id="desktop-menu">
 				<?php //this is the full desktop menu
 					/** @var WalkMenu $mainMenuPage */
-					$mainMenuPage = $pages->get(1296); //page id of the Main Menu
-					echo $mainMenuPage->renderFrontend($page); //pass the current rendered page as well
+					//$mainMenuPage = $pages->get(1296); //page id of the Main Menu
+				//	echo $mainMenuPage->renderFrontend($page); //pass the current rendered page as well
 				?>
+					<li> <a href="#"> home </a> </li>
+					<li> <a href="#"> How it Works </a> </li>
+					<li> <a href="#"> Tools </a> </li>
+					<li> <a href="#"> Contact </a> </li>
+
 				</ul>
 			</div>
 			<?php
